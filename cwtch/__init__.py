@@ -1,3 +1,5 @@
+import importlib.metadata
+
 from cwtch.core import field
 
 from .cwtch import (
@@ -13,3 +15,5 @@ from .cwtch import (
 from .errors import *
 from .metadata import *
 from .types import *
+
+__version__ = importlib.metadata.version("cwtch")
