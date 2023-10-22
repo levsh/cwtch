@@ -80,7 +80,7 @@ class M(Struct):
     dd: dict[str, int]
 
 
-RANGE = 20
+RANGE = 25
 
 data = {
     "i": 0,

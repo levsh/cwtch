@@ -1,6 +1,11 @@
 from urllib.parse import urlparse
 
-from msgspec import UNSET, UnsetType  # noqa
+
+class UnsetType:
+    pass
+
+
+UNSET = UnsetType()
 
 
 class SecretStr:

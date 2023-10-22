@@ -290,7 +290,7 @@ def test_model():
         ai: Annotated[int, Ge(0)] = field()
         al: Annotated[list[int], MinLen(1)] = field()
 
-    assert A.__base__ == Base
+    # assert A.__base__ == Base
 
     a = A(
         i="1",

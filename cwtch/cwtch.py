@@ -1,6 +1,6 @@
-import os
 from copy import deepcopy
 from inspect import _empty, signature
+from os import environ
 from typing import Any, Callable, Generic, Type, cast
 
 from attr._make import _AndValidator, _CountingAttr
@@ -11,21 +11,13 @@ from attrs.filters import exclude as attrs_exclude
 
 from cwtch.core import (
     Base,
-    BaseCache,
-    BaseCacheIgnoreExtra,
     BaseIgnoreExtra,
     EnvBase,
-    EnvBaseCache,
-    EnvBaseCacheIgnoreExtra,
     EnvBaseIgnoreExtra,
     ViewBase,
-    ViewBaseCache,
-    ViewBaseCacheIgnoreExtra,
     ViewBaseIgnoreExtra,
     _cache,
-    _validators_map,
     field,
-    get_validator,
     validate_value,
 )
 from cwtch.errors import ValidationError
@@ -39,8 +31,8 @@ def validate_args(fn: Callable, args: tuple, kwds: dict) -> tuple[tuple, dict]:
     Helper to convert and validate function arguments.
 
     Args:
-      args: function positional only arguments.
-      kwds: function keyword only arguments.
+      args: function positional arguments.
+      kwds: function keyword arguments.
     """
 
     sig = signature(fn)
@@ -99,27 +91,21 @@ class ViewDesc:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-_base_cls_map: dict[tuple[bool, bool, bool], Type] = {
-    (False, False, False): Base,
-    (False, True, False): BaseCache,
-    (False, False, True): BaseIgnoreExtra,
-    (False, True, True): BaseCacheIgnoreExtra,
-    (True, False, False): EnvBase,
-    (True, True, False): EnvBaseCache,
-    (True, False, True): EnvBaseIgnoreExtra,
-    (True, True, True): EnvBaseCacheIgnoreExtra,
+_base_cls_map: dict[tuple[bool, bool], Type] = {
+    (False, False): Base,
+    (False, True): BaseIgnoreExtra,
+    (True, False): EnvBase,
+    (True, True): EnvBaseIgnoreExtra,
 }
 
-_view_base_cls_map: dict[tuple[bool, bool, bool], Type] = {
-    (False, False, False): ViewBase,
-    (False, True, False): ViewBaseCache,
-    (False, False, True): ViewBaseIgnoreExtra,
-    (False, True, True): ViewBaseCacheIgnoreExtra,
+_view_base_cls_map: dict[tuple[bool, bool], Type] = {
+    (False, False): ViewBase,
+    (False, True): ViewBaseIgnoreExtra,
 }
 
 
 def default_env_source() -> dict:
-    return cast(dict, os.environ)
+    return cast(dict, environ)
 
 
 def define(
@@ -127,7 +113,6 @@ def define(
     *,
     env_prefix: str | list[str] | None = None,
     env_source: Callable[[], dict] | None = None,
-    use_cache: bool | None = None,
     ignore_extra: bool | None = None,
     **kwds,
 ) -> Type | Callable[[Type], Type]:
@@ -135,13 +120,11 @@ def define(
     Args:
       env_prefix: prefix(or list of prefixes) for environment variables.
       env_source: environment variables source factory.
-      use_cache: use cache to handle circular references.
       ignore_extra: ignore extra arguments passed to init.
     """
 
     kwds["kw_only"] = True
-    if env_prefix or use_cache or ignore_extra:
-        kwds["init"] = False
+    kwds["init"] = False
 
     env_source = env_source or default_env_source
 
@@ -188,7 +171,7 @@ def define(
                     v for v in attr._validator._validators if not hasattr(v, "__cwtch_view__")
                 )
 
-        base = _base_cls_map[(bool(env_prefix), bool(use_cache), bool(ignore_extra))]
+        base = _base_cls_map[(bool(env_prefix), bool(ignore_extra))]
 
         if issubclass(cls, base):
             bases = (cls,)
@@ -207,7 +190,6 @@ def define(
         cls.__annotations__ = cls_annotations
         cls.__module__ = cls_module
         cls.__cwtch_model__ = True  # type: ignore
-        cls.__cwtch_use_cache__ = use_cache  # type: ignore
         if env_prefixes:
             cls.__cwtch_env_prefixes__ = env_prefixes  # type: ignore
             cls.__cwtch_env_source__ = staticmethod(env_source)  # type: ignore
@@ -221,9 +203,6 @@ def define(
             view_ignore_extra = view_params["ignore_extra"]
             if view_ignore_extra is None:
                 view_ignore_extra = ignore_extra
-            view_use_cache = view_params["use_cache"]
-            if view_use_cache is None:
-                view_use_cache = use_cache
             recursive = view_params["recursive"]
 
             view_attrs = {
@@ -272,11 +251,10 @@ def define(
                 for k, v in view_attrs.items():
                     view_annotations[k] = v.type = update_type(v.type)
 
-            view_base = _view_base_cls_map[(bool(env_prefix), bool(view_use_cache), bool(view_ignore_extra))]
+            view_base = _view_base_cls_map[(bool(env_prefix), bool(view_ignore_extra))]
 
             view_kwds = kwds.copy()
-            if env_prefix or view_use_cache or view_ignore_extra:
-                view_kwds["init"] = False
+            view_kwds["init"] = False
 
             view_cls = attrs_make_class(
                 f"{cls.__name__}{view_name}",
@@ -290,7 +268,6 @@ def define(
             view_cls.__cwtch_view__ = True  # type: ignore
             view_cls.__cwtch_view_base__ = cls  # type: ignore
             view_cls.__cwtch_view_name__ = view.__name__  # type: ignore
-            view_cls.__cwtch_use_cache__ = view_use_cache  # type: ignore
 
             setattr(cls, view.__name__, ViewDesc(view_cls))
 
@@ -321,7 +298,6 @@ def view(
     include: set[str] | None = None,
     exclude: set[str] | None = None,
     validate: bool | None = None,
-    use_cache: bool | None = None,
     ignore_extra: bool | None = None,
     recursive: bool | None = None,
     lc: dict[str, Any] | None = None,
@@ -333,7 +309,6 @@ def view(
       include: set of field names to include from root model.
       exclude: set of field names to exclude from root model.
       validate: if False skip validation(default True).
-      use_cache: use cache to handle circular references.
       ignore_extra: ignore extra arguments passed to init.
       recursive: ...
       lc: Python frame locals.
@@ -350,7 +325,6 @@ def view(
             "include": include,
             "exclude": exclude,
             "validate": validate,
-            "use_cache": use_cache,
             "ignore_extra": ignore_extra,
             "recursive": recursive,
         }
@@ -378,53 +352,6 @@ def view(
         return wrapper
 
     return wrapper(cls)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-def asdict(
-    inst,
-    *args,
-    include: set[str] | None = None,
-    exclude: set[str] | None = None,
-    exclude_unset: bool | None = None,
-    **kwds,
-):
-    """
-    Args:
-      include: set of field names to include.
-      exclude: set of field names to exclude.
-      exclude_unset: exclude fields what not set from init.
-    """
-
-    if exclude_unset is True:
-        if "filter" in kwds:
-            original_filter = kwds["filter"]
-
-            def fn(*args_, **kwds_):
-                return original_filter(*args_, **kwds_) and attrs_exclude(UnsetType)(*args_, *kwds_)
-
-            kwds["filter"] = fn
-
-        else:
-            kwds["filter"] = attrs_exclude(UnsetType)
-
-    data = attrs_asdict(inst, *args, **kwds)
-
-    if include is not None and exclude is not None:
-        raise ValueError
-
-    if include:
-        data = {k: v for k, v in data.items() if k in include}
-
-    if exclude:
-        data = {k: v for k, v in data.items() if k not in exclude}
-
-    return data
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 
 
 def from_attributes(
@@ -456,25 +383,53 @@ def from_attributes(
     if exclude:
         kwds = {k: v for k, v in kwds.items() if k not in exclude}
 
-    if cls.__cwtch_use_cache__:
-        cache_key = (cls, id(obj))
-        _cache.get()[cache_key] = {"reset_circular_refs": reset_circular_refs}
-        try:
-            return cls(__cache_key=cache_key, **kwds)
-        finally:
-            _cache.get().pop(cache_key, None)
-    else:
-        return cls(**kwds)
+    cache = _cache.get()
+    cache["reset_circular_refs"] = reset_circular_refs
+    try:
+        return cls(_cwtch_cache_key=(cls, id(obj)), **kwds)
+    finally:
+        del cache["reset_circular_refs"]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def register_validator(T, validator: Callable):
-    """Register custom validator for type T."""
+def asdict(
+    inst,
+    *args,
+    include: set[str] | None = None,
+    exclude: set[str] | None = None,
+    exclude_unset: bool | None = None,
+    **kwds,
+) -> dict:
+    """
+    Args:
+      include: set of field names to include.
+      exclude: set of field names to exclude.
+      exclude_unset: exclude fields what not set from init.
+    """
 
-    _validators_map[T] = validator
-    get_validator.cache_clear()
+    if exclude_unset is True:
+        if "filter" in kwds:
+            original_filter = kwds["filter"]
 
+            def fn(*args_, **kwds_):
+                return original_filter(*args_, **kwds_) and attrs_exclude(UnsetType)(*args_, *kwds_)
 
-# -------------------------------------------------------------------------------------------------------------------- #
+            kwds["filter"] = fn
+
+        else:
+            kwds["filter"] = attrs_exclude(UnsetType)
+
+    data = attrs_asdict(inst, *args, **kwds)
+
+    if include is not None and exclude is not None:
+        raise ValueError
+
+    if include:
+        data = {k: v for k, v in data.items() if k in include}
+
+    if exclude:
+        data = {k: v for k, v in data.items() if k not in exclude}
+
+    return data
