@@ -1,0 +1,45 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install poetry
+        poetry install
+    - name: Run test
+      run: |
+        poetry run inv tests
+    - name: Generate shields.io coverage
+      run: |
+        poetry run inv generate-coverage-gist
+    - name: Update coverage badge Gist
+      run: |
+        curl \
+          -X PATCH \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GIST_PAT }}" \
+          https://api.github.com/gists/f079c374abda6c5bd393c3ac723f1182 \
+          -d @artifacts/shields_io_coverage_gist_data.json
