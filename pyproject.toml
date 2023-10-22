@@ -20,7 +20,6 @@ include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 [tool.poetry.dependencies]
 python = ">=3.11, <4.0"
 attrs = ">=22.0.0"
-msgspec = "*"
 
 [tool.poetry.group.test.dependencies]
 cattrs = "*"
