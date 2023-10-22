@@ -21,8 +21,8 @@ jobs:
 
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
-        # env:
-        #   CIBW_SOME_OPTION: value
+        env:
+          CIBW_BUILD: "cp311-* cp312-*"
 
       - uses: actions/upload-artifact@v3
         with:
