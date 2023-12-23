@@ -1,17 +1,6 @@
 from urllib.parse import urlparse
 
 
-class UnsetType:
-    def __copy__(self, *args, **kwds):
-        return self
-
-    def __deepcopy__(self, *args, **kwds):
-        return self
-
-
-UNSET = UnsetType()
-
-
 class SecretStr:
     __slots__ = ("_value",)
 

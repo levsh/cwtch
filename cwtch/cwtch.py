@@ -8,12 +8,12 @@ from attrs import asdict as attrs_asdict
 from attrs import fields_dict as attrs_fields_dict
 from attrs import make_class as attrs_make_class
 from attrs.filters import exclude as attrs_exclude
-
 from cwtch.core import (
     Base,
     BaseIgnoreExtra,
     EnvBase,
     EnvBaseIgnoreExtra,
+    UnsetType,
     ViewBase,
     ViewBaseIgnoreExtra,
     _cache,
@@ -21,7 +21,6 @@ from cwtch.core import (
     validate_value,
 )
 from cwtch.errors import ValidationError
-from cwtch.types import UnsetType
 
 # -------------------------------------------------------------------------------------------------------------------- #
 

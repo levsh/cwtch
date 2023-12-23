@@ -9,7 +9,7 @@ import cython
 from attrs import field as attrs_field
 
 from .errors import ValidationError
-from .types import UNSET
+
 
 cdef extern from "Python.h":
 
@@ -21,6 +21,17 @@ cdef extern from "Python.h":
 
 
 _cache = ContextVar("_cache", default={})
+
+
+class UnsetType:
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
+
+
+UNSET = UnsetType()
 
 
 class Metaclass(type):
