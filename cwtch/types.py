@@ -2,7 +2,11 @@ from urllib.parse import urlparse
 
 
 class UnsetType:
-    pass
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
 
 
 UNSET = UnsetType()
