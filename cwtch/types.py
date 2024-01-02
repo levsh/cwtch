@@ -1,4 +1,11 @@
+from typing import TypeVar
 from urllib.parse import urlparse
+
+from msgspec import UnsetType
+
+T = TypeVar("T")
+
+Unset = T | UnsetType
 
 
 class SecretStr:

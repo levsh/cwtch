@@ -6,7 +6,9 @@ from contextvars import ContextVar
 from json import JSONDecodeError
 
 import cython
+from attrs import NOTHING
 from attrs import field as attrs_field
+from msgspec import UNSET, Meta, UnsetType
 
 from .errors import ValidationError
 
@@ -23,17 +25,6 @@ cdef extern from "Python.h":
 _cache = ContextVar("_cache", default={})
 
 
-class UnsetType:
-    def __copy__(self, *args, **kwds):
-        return self
-
-    def __deepcopy__(self, *args, **kwds):
-        return self
-
-
-UNSET = UnsetType()
-
-
 class Metaclass(type):
     def __subclasscheck__(self, subclass):
         if isinstance(subclass, type) and getattr(subclass, "__cwtch_view_base__", None) == self:
@@ -44,6 +35,10 @@ class Metaclass(type):
         if getattr(instance, "__cwtch_view_base__", None) == self:
             return True
         return super().__instancecheck__(instance)
+
+
+class ViewMetaclass(type):
+    pass
 
 
 def make_bases():
@@ -100,7 +95,7 @@ def make_bases():
             result = super().__class_getitem__(parameters)
             return class_getitem(cls, parameters, result)
 
-    class ViewBase:
+    class ViewBase(metaclass=ViewMetaclass):
         def __init__(self, *, _cwtch_cache_key=None, **kwds):
             if _cwtch_cache_key is not None:
                 cache_get()[_cwtch_cache_key] = self
@@ -110,7 +105,7 @@ def make_bases():
             result = super().__class_getitem__(parameters)
             return class_getitem(cls, parameters, result)
 
-    class ViewBaseIgnoreExtra:
+    class ViewBaseIgnoreExtra(metaclass=ViewMetaclass):
         def __init__(self, *, _cwtch_cache_key=None, **kwds):
             if _cwtch_cache_key is not None:
                 cache_get()[_cwtch_cache_key] = self
@@ -209,6 +204,7 @@ def make():
     datetime_fromisoformat = datetime.fromisoformat
     date_fromisoformat = date.fromisoformat
     _UNSET = UNSET
+    NoneType = type(None)
 
     def validate_any(value, T, /):
         return value
@@ -241,6 +237,10 @@ def make():
             return origin(**kwds)
         if is_dataclass(origin) and isinstance(value, dict):
             return PyObject_Call(origin, (), value)
+        if T == UnsetType and value != UNSET:
+            raise ValueError(f"value is not a valid {T}")
+        if T == NoneType and value is not None:
+            raise ValueError("value is not a None")
         return origin(value)
 
     def validate_bool(value, T, /):
@@ -523,6 +523,26 @@ def make():
             raise ValueError("not callable")
         return value
 
+    def _validate_metadata(value, metadata):
+        if (ge := metadata.ge) is not None:
+            if value < ge:
+                raise ValueError(f"value should be >= {ge}")
+        if (gt := metadata.gt) is not None:
+            if value <= gt:
+                raise ValueError(f"value should be > {gt}")
+        if (le := metadata.le) is not None:
+            if value > le:
+                raise ValueError(f"value should be <= {le}")
+        if (lt := metadata.lt) is not None:
+            if value >= lt:
+                raise ValueError(f"value should be < {lt}")
+        if (min_length := metadata.min_length) is not None:
+            if len(value) < min_length:
+                raise ValueError(f"value length should be >= {min_length}")
+        if (max_length := metadata.max_length) is not None:
+            if len(value) < max_length:
+                raise ValueError(f"value length should be <= {max_length}")
+
     def validate_annotated(value, T, /):
         __metadata__ = T.__metadata__
 
@@ -540,6 +560,8 @@ def make():
         for metadata in __metadata__:
             if validator := getattr(metadata, "validate_after", None):
                 validator(value)
+            elif isinstance(metadata, Meta):
+                _validate_metadata(value, metadata)
 
         return value
 
@@ -594,6 +616,7 @@ def make():
     validators_map[None.__class__] = validate_none
     validators_map[type] = validate_type
     validators_map[Metaclass] = validate_type
+    validators_map[ViewMetaclass] = validate_type
     validators_map[int] = validate_int
     validators_map[float] = validate_float
     validators_map[str] = validate_str
@@ -635,10 +658,152 @@ def make():
             parameters = cache_get().get("parameters")
             raise ValidationError(value, T, [e], parameters=parameters)
 
-    return validators_map, get_validator, validate_value
+    def make_json_schema(T, ref_builder=lambda model: f"#/$defs/{model.__name__}") -> tuple[dict, dict]:
+        builder = json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
+        if builder is None:
+            raise Exception(T)
+        return builder(T, ref_builder=ref_builder)
+
+    def make_json_schema_from_metadata(metadata) -> dict:
+        schema = {}
+        if metadata.ge:
+            schema["minimum"] = metadata.ge
+        if metadata.gt:
+            schema["exclusiveMinimum"] = True
+            schema["minimum"] = metadata.gt
+        if metadata.le:
+            schema["maximum"] = metadata.le
+        if metadata.lt:
+            schema["exclusiveMaximum"] = True
+            schema["maximum"] = metadata.lt
+        if metadata.min_length:
+            schema["minLength"] = metadata.min_length
+        if metadata.max_length:
+            schema["maxLength"] = metadata.max_length
+        return schema
+
+    def make_json_schema_int(T, ref_builder=None):
+        schema = {"type": "integer"}
+        if metadata := next(filter(lambda item: isinstance(item, Meta), getattr(T, "__metadata__", ())), None):
+            schema.update(make_json_schema_from_metadata(metadata))
+        return schema, {}
+
+    def make_json_schema_float(T, ref_builder=None):
+        schema = {"type": "number"}
+        if metadata := next(filter(lambda item: isinstance(item, Meta), getattr(T, "__metadata__", ())), None):
+            schema.update(make_json_schema_from_metadata(metadata))
+        return schema, {}
+
+    def make_json_schema_str(T, ref_builder=None):
+        schema = {"type": "string"}
+        if metadata := next(filter(lambda item: isinstance(item, Meta), getattr(T, "__metadata__", ())), None):
+            schema.update(make_json_schema_from_metadata(metadata))
+        return schema, {}
+
+    def make_json_schema_bool(T, ref_builder=None):
+        schema = {"type": "boolean"}
+        return schema, {}
+
+    def make_json_schema_annotated(T, ref_builder=None):
+        schema, refs = make_json_schema(T.__origin__, ref_builder=ref_builder)
+        if metadata := next(filter(lambda item: isinstance(item, Meta), T.__metadata__), None):
+            schema.update(make_json_schema_from_metadata(metadata))
+        return schema, refs
+
+    def make_json_schema_union(T, ref_builder=None):
+        schemas = []
+        refs = {}
+        for arg in T.__args__:
+            arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder)
+            schemas.append(arg_schema)
+            refs.update(arg_refs)
+        return {"oneOf": schemas}, refs
+
+    def make_json_schema_list(T, ref_builder=None):
+        schema = {"type": "array"}
+        refs = {}
+        if hasattr(T, "__args__"):
+            items_schema, refs = make_json_schema(T.__args__[0], ref_builder=ref_builder)
+            schema["items"] = items_schema
+        return schema, refs
+
+    def make_json_schema_tuple(T, ref_builder=None):
+        schema = {"type": "array"}
+        refs = {}
+        if hasattr(T, "__args__"):
+            schema["prefixItems"] = []
+            for arg in T.__args__:
+                if arg == ...:
+                    raise Exception("Ellipsis is not supported")
+                arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder)
+                schema["prefixItems"].append(arg_schema)
+                refs.update(arg_refs)
+        return schema, refs
+
+    def make_json_schema_dict(T, ref_builder=None):
+        return {"type": "object"}, {}
+
+    def make_json_schema_literal(T, ref_builder=None):
+        return {"enum": list(T.__args__)}, {}
+
+    def make_json_schema_datetime(T, ref_builder=None):
+        return {"type": "string", "format": "date-time"}, {}
+
+    def make_json_schema_date(T, ref_builder=None):
+        return {"type": "string", "format": "date"}, {}
+
+    def make_json_schema_generic_alias(T, ref_builder=None):
+        builder = json_schema_builders_map.get(T.__origin__) or json_schema_builders_map.get(T.__origin__.__class__)
+        return builder(T, ref_builder=ref_builder)
+
+    def make_json_schema_attrs(T, ref_builder=None):
+        schema = {"type": "object"}
+        refs = {}
+        properties = {}
+        required = []
+        for a in T.__attrs_attrs__:
+            a_schema, a_refs = make_json_schema(a.type, ref_builder=ref_builder)
+            properties[a.name] = a_schema
+            refs.update(a_refs)
+            if a.default == NOTHING:
+                required.append(a.name)
+        if properties:
+            schema["properties"] = properties
+        if required:
+            schema["required"] = required
+        if ref_builder:
+            ref = ref_builder(T)
+            name = ref.rsplit("/", 1)[-1]
+            refs[name] = schema
+            return {"$ref": ref}, refs
+        return schema, refs
+
+    json_schema_builders_map = {}
+    json_schema_builders_map[int] = make_json_schema_int
+    json_schema_builders_map[float] = make_json_schema_float
+    json_schema_builders_map[str] = make_json_schema_str
+    json_schema_builders_map[bool] = make_json_schema_bool
+    json_schema_builders_map[Metaclass] = make_json_schema_attrs
+    json_schema_builders_map[ViewMetaclass] = make_json_schema_attrs
+    json_schema_builders_map[list] = make_json_schema_list
+    json_schema_builders_map[tuple] = make_json_schema_tuple
+    json_schema_builders_map[set] = make_json_schema_list
+    json_schema_builders_map[dict] = make_json_schema_dict
+    json_schema_builders_map[Mapping] = make_json_schema_dict
+    json_schema_builders_map[_AnnotatedAlias] = make_json_schema_annotated
+    json_schema_builders_map[GenericAlias] = make_json_schema_generic_alias
+    json_schema_builders_map[_GenericAlias] = make_json_schema_generic_alias
+    json_schema_builders_map[_SpecialGenericAlias] = make_json_schema_generic_alias
+    json_schema_builders_map[_LiteralGenericAlias] = make_json_schema_literal
+    json_schema_builders_map[UnionType] = make_json_schema_union
+    json_schema_builders_map[_UnionGenericAlias] = make_json_schema_union
+    json_schema_builders_map[datetime] = make_json_schema_datetime
+    json_schema_builders_map[date] = make_json_schema_date
+
+    return validators_map, get_validator, validate_value, make_json_schema
 
 
-validators_map, get_validator, validate_value = make()
+validators_map, get_validator, validate_value, make_json_schema = make()
 
 
 def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, **kwds):
@@ -691,3 +856,37 @@ def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, 
 def register_validator(T, validator):
     validators_map[T] = validator
     get_validator.cache_clear()
+
+
+def _asdict(inst, **kwds):
+    if not hasattr(inst, "__attrs_attrs__"):
+        return inst
+
+    include_ = kwds.get("include", None)
+    exclude_ = kwds.get("exclude", None)
+    exclude_unset = kwds.get("exclude_unset", None)
+
+    conditions = []
+    if include_ is not None:
+        conditions.append(lambda k, v: k in include_)
+    if exclude_ is not None:
+        conditions.append(lambda k, v: k not in exclude_)
+    if exclude_unset:
+        conditions.append(lambda k, v: v != UNSET)
+
+    if hasattr(inst, "to_dict"):
+        items = inst.to_dict().items()
+    else:
+        items = ((a.name, getattr(inst, a.name)) for a in inst.__attrs_attrs__)
+    data = {}
+    for k, v in items:
+        if all(condition(k, v) for condition in conditions):
+            if isinstance(v, list):
+                data[k] = [_asdict(x, exclude_unset=exclude_unset) for x in v]
+            elif isinstance(v, tuple):
+                data[k] = tuple(_asdict(x, exclude_unset=exclude_unset) for x in v)
+            elif isinstance(v, dict):
+                data[k] = {kk: _asdict(vv, exclude_unset=exclude_unset) for kk, vv in v.items()}
+            else:
+                data[k] = _asdict(v, exclude_unset=exclude_unset)
+    return data

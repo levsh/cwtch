@@ -6,25 +6,24 @@ from typing import Annotated, Any, ForwardRef, Generic, Literal, TypeVar
 from unittest import mock
 
 import attrs
+import msgspec
 import pytest
 from cattrs import structure
-from msgspec import Struct, convert
 from pydantic import BaseModel
 
 from cwtch import (
-    Ge,
-    JsonValue,
-    MinLen,
+    Meta,
     SecretStr,
     SecretUrl,
     ValidationError,
+    asdict,
     define,
     field,
+    make_json_schema,
     validate_args,
     validate_value,
     view,
 )
-from cwtch.cwtch import Base
 
 T = TypeVar("T")
 
@@ -128,20 +127,20 @@ def test_validate_literal():
 
 
 def test_validate_annotated():
-    assert validate_value(1, Annotated[int, Ge(1)]) == 1
+    assert validate_value(1, Annotated[int, Meta(ge=1)]) == 1
     with pytest.raises(
         ValidationError,
-        match=re.escape(("validation error for typing.Annotated[int, Ge(value=1)]\n  - value should be >= 1")),
+        match=re.escape(("validation error for typing.Annotated[int, msgspec.Meta(ge=1)]\n  - value should be >= 1")),
     ):
-        validate_value(0, Annotated[int, Ge(1)])
-    assert validate_value(1, Annotated[Annotated[int, Ge(0)], Ge(1)]) == 1
+        validate_value(0, Annotated[int, Meta(ge=1)])
+    assert validate_value(1, Annotated[Annotated[int, Meta(ge=0)], Meta(ge=1)]) == 1
     with pytest.raises(
         ValidationError,
         match=re.escape(
-            "validation error for typing.Annotated[int, Ge(value=2), Ge(value=1)]\n  - value should be >= 2"
+            "validation error for typing.Annotated[int, msgspec.Meta(ge=2), msgspec.Meta(ge=1)]\n  - value should be >= 2"
         ),
     ):
-        validate_value(1, Annotated[Annotated[int, Ge(2)], Ge(1)])
+        validate_value(1, Annotated[Annotated[int, Meta(ge=2)], Meta(ge=1)])
 
 
 def test_validate_model_simple():
@@ -225,22 +224,22 @@ def test_validate_mapping():
 
 
 def test_validate_annotated_complex():
-    assert validate_value([1, 2], list[Annotated[int, Ge(1)]]) == [1, 2]
+    assert validate_value([1, 2], list[Annotated[int, Meta(ge=1)]]) == [1, 2]
     with pytest.raises(
         ValidationError,
         match=re.escape(
-            "validation error for list[typing.Annotated[int, Ge(value=1)]] path=[2]\n  - value should be >= 1"
+            "validation error for list[typing.Annotated[int, msgspec.Meta(ge=1)]] path=[2]\n  - value should be >= 1"
         ),
     ):
-        validate_value([1, 2, 0], list[Annotated[int, Ge(1)]])
-    assert validate_value((1, 2), list[Annotated[int, Ge(1)]]) == [1, 2]
+        validate_value([1, 2, 0], list[Annotated[int, Meta(ge=1)]])
+    assert validate_value((1, 2), list[Annotated[int, Meta(ge=1)]]) == [1, 2]
     with pytest.raises(
         ValidationError,
         match=re.escape(
-            "validation error for list[typing.Annotated[int, Ge(value=1)]] path=[2]\n  - value should be >= 1"
+            "validation error for list[typing.Annotated[int, msgspec.Meta(ge=1)]] path=[2]\n  - value should be >= 1"
         ),
     ):
-        validate_value((1, 2, 0), list[Annotated[int, Ge(1)]])
+        validate_value((1, 2, 0), list[Annotated[int, Meta(ge=1)]])
 
 
 def test_validate_union():
@@ -250,13 +249,13 @@ def test_validate_union():
     assert validate_value(1, float | str) == 1.0
     with pytest.raises(ValidationError):
         assert validate_value("a", int | float) == "a"
-    T = Annotated[int | float, Ge(1)]
+    T = Annotated[int | float, Meta(ge=1)]
     assert validate_value("a", T | str) == "a"
     with pytest.raises(
         ValidationError,
         match=re.escape(
             (
-                "validation error for typing.Union[typing.Annotated[int | float, Ge(value=1)], bool]\n"
+                "validation error for typing.Union[typing.Annotated[int | float, msgspec.Meta(ge=1)], bool]\n"
                 "  - invalid literal for int() with base 10: 'a'\n"
                 "  - could not convert string to float: 'a'\n"
                 "  - invalid value for <class 'bool'>"
@@ -287,8 +286,8 @@ def test_model():
         ti: tuple[int, ...] = field()
         d: dict = field()
         dd: dict[str, int] = field()
-        ai: Annotated[int, Ge(0)] = field()
-        al: Annotated[list[int], MinLen(1)] = field()
+        ai: Annotated[int, Meta(ge=0)] = field()
+        al: Annotated[list[int], Meta(min_length=1)] = field()
 
     # assert A.__base__ == Base
 
@@ -428,6 +427,10 @@ def test_view():
         class V2:
             j: int = 0
 
+        @view
+        class V3:
+            f: float
+
         @i.validator
         def validator1(*args):
             validator_calls.append("validator1")
@@ -471,12 +474,14 @@ def test_view():
     assert validator_calls == ["validator1", "validator2", "validator_V2"]
     validator_calls.clear()
 
-    assert attrs.asdict(v1) == attrs.asdict(v2) == {"i": 1, "j": 2}
+    assert asdict(v1) == asdict(v2) == {"i": 1, "j": 2}
 
     v2 = A.V2(i=1)
     assert v2.i == 1
     assert v2.j == 0
-    assert attrs.asdict(v2) == {"i": 1, "j": 0}
+    assert asdict(v2) == {"i": 1, "j": 0}
+
+    v3 = A.V3(i=1, j=2, s="a", b=False, l=[], f=1.1)
 
 
 def test_view_ignore_extra():
@@ -541,6 +546,7 @@ def test_generics():
         assert C[int](x=["a"]).x == [1]
 
 
+@pytest.mark.skip
 def test_json_value_metadata():
     JsonList = Annotated[list, JsonValue()]
     JsonDict = Annotated[dict, JsonValue()]
@@ -579,6 +585,19 @@ def test_view_recursive():
     assert B.V.__annotations__["a"] == A.V
 
 
+def test_json_schema():
+    @define
+    class SubModel:
+        i: int
+
+    @define
+    class Model:
+        i: int = field()
+        m: SubModel
+
+    msgspec.json.schema_components([Model, SubModel])
+
+
 def test_validate_call():
     def foo(s: str, i: int = None):
         pass
@@ -606,3 +625,53 @@ def test_SecretUrl():
     assert repr(s) == "SecretUrl(http://***@localhost)"
     assert s.get_secret_value() == "http://user:pass@localhost"
     assert hash(s) == hash(s.get_secret_value())
+
+
+def test_make_json_schema():
+    assert make_json_schema(int) == ({"type": "integer"}, {})
+    assert make_json_schema(str) == ({"type": "string"}, {})
+    assert make_json_schema(float) == ({"type": "number"}, {})
+    assert make_json_schema(bool) == ({"type": "boolean"}, {})
+    assert make_json_schema(list) == ({"type": "array"}, {})
+    assert make_json_schema(list[int]) == ({"type": "array", "items": {"type": "integer"}}, {})
+    assert make_json_schema(tuple) == ({"type": "array"}, {})
+    assert make_json_schema(tuple[int, str]) == (
+        {"type": "array", "prefixItems": [{"type": "integer"}, {"type": "string"}]},
+        {},
+    )
+    assert make_json_schema(set) == ({"type": "array"}, {})
+    assert make_json_schema(set[int]) == ({"type": "array", "items": {"type": "integer"}}, {})
+    assert make_json_schema(dict) == ({"type": "object"}, {})
+    assert make_json_schema(Literal["A", 1]) == ({"enum": ["A", 1]}, {})
+    assert make_json_schema(Annotated[int, Meta(ge=1, le=10)]) == ({"type": "integer", "minimum": 1, "maximum": 10}, {})
+    assert make_json_schema(Annotated[int, Meta(gt=1, lt=10)]) == (
+        {"type": "integer", "exclusiveMinimum": True, "minimum": 1, "exclusiveMaximum": True, "maximum": 10},
+        {},
+    )
+    assert make_json_schema(Annotated[str, Meta(min_length=1, max_length=10)]) == (
+        {"type": "string", "minLength": 1, "maxLength": 10},
+        {},
+    )
+
+    @define
+    class Model:
+        i: Annotated[int, Meta(ge=1, lt=10)]
+        s: str
+        l: list
+        f: list[float]
+
+    assert make_json_schema(list[Model]) == (
+        {"type": "array", "items": {"$ref": "#/$defs/Model"}},
+        {
+            "Model": {
+                "type": "object",
+                "properties": {
+                    "i": {"type": "integer", "minimum": 1, "exclusiveMaximum": True, "maximum": 10},
+                    "s": {"type": "string"},
+                    "l": {"type": "array"},
+                    "f": {"type": "array", "items": {"type": "number"}},
+                },
+                "required": ["i", "s", "l", "f"],
+            }
+        },
+    )

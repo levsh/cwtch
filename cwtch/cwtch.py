@@ -4,18 +4,19 @@ from os import environ
 from typing import Any, Callable, Generic, Type, cast
 
 from attr._make import _AndValidator, _CountingAttr
+from attrs import NOTHING
 from attrs import asdict as attrs_asdict
 from attrs import fields_dict as attrs_fields_dict
 from attrs import make_class as attrs_make_class
-from attrs.filters import exclude as attrs_exclude
+
 from cwtch.core import (
     Base,
     BaseIgnoreExtra,
     EnvBase,
     EnvBaseIgnoreExtra,
-    UnsetType,
     ViewBase,
     ViewBaseIgnoreExtra,
+    _asdict,
     _cache,
     field,
     validate_value,
@@ -140,14 +141,14 @@ def define(
                 if hasattr(cls, attr_name):
                     attrs[attr_name] = field(validate=True, type=attr_type, default=getattr(cls, attr_name))
                 else:
-                    attrs[attr_name] = field(validate=True, type=attr_type)
+                    attrs[attr_name] = field(validate=True, type=attr_type, default=NOTHING)
 
         views_attrs = {}
         views = {}
 
         for item in cls.__mro__[::-1]:
             for attr_name, attr_type in getattr(item, "__annotations__", {}).items():
-                attr = getattr(item, attr_name, None)
+                attr = getattr(item, attr_name, NOTHING)
                 if isinstance(attr, (_CountingAttr, _CountingAttrProxy)):
                     views_attrs[attr_name] = attr
                 else:
@@ -161,7 +162,18 @@ def define(
                 views[attr_name] = attr
         views = list(views.values())
 
-        cls_attrs = deepcopy(attrs)
+        def _deepcopy(attrs):
+            types = {k: v.type for k, v in attrs.items()}
+            for v in attrs.values():
+                v.type = None
+            copied_attrs = deepcopy(attrs)
+            for k, v in attrs.items():
+                v.type = types[k]
+            for k, v in copied_attrs.items():
+                v.type = types[k]
+            return copied_attrs
+
+        cls_attrs = _deepcopy(attrs)
 
         for attr_name, attr in cls_attrs.items():
             attr.type = cls_annotations.get(attr_name, attr.type)
@@ -207,17 +219,20 @@ def define(
             view_attrs = {
                 k: v
                 for k, v in {
-                    **deepcopy(views_attrs),
+                    **_deepcopy(views_attrs),
                     **{k: v for k, v in view.__dict__.items() if isinstance(v, _CountingAttr)},
                 }.items()
                 if (k in include and k not in exclude)
             }
 
             for attr_name, attr_type in view.__annotations__.items():
-                attr = getattr(view, attr_name)
-                if attr.__class__ in (_CountingAttr, _CountingAttrProxy):
-                    continue
-                view_attrs[attr_name] = field(validate=True, type=attr_type, default=attr)
+                if hasattr(view, attr_name):
+                    attr = getattr(view, attr_name)
+                    if attr.__class__ in (_CountingAttr, _CountingAttrProxy):
+                        continue
+                    view_attrs[attr_name] = field(validate=True, type=attr_type, default=attr)
+                else:
+                    view_attrs[attr_name] = field(validate=True, type=attr_type, default=NOTHING)
 
             view_annotations = {k: v for k, v in {**cls_annotations, **view.__annotations__}.items() if k in view_attrs}
 
@@ -395,40 +410,8 @@ def from_attributes(
 
 def asdict(
     inst,
-    *args,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
     exclude_unset: bool | None = None,
-    **kwds,
 ) -> dict:
-    """
-    Args:
-      include: set of field names to include.
-      exclude: set of field names to exclude.
-      exclude_unset: exclude fields what not set from init.
-    """
-
-    if exclude_unset is True:
-        if "filter" in kwds:
-            original_filter = kwds["filter"]
-
-            def fn(*args_, **kwds_):
-                return original_filter(*args_, **kwds_) and attrs_exclude(UnsetType)(*args_, *kwds_)
-
-            kwds["filter"] = fn
-
-        else:
-            kwds["filter"] = attrs_exclude(UnsetType)
-
-    data = attrs_asdict(inst, *args, **kwds)
-
-    if include is not None and exclude is not None:
-        raise ValueError
-
-    if include:
-        data = {k: v for k, v in data.items() if k in include}
-
-    if exclude:
-        data = {k: v for k, v in data.items() if k not in exclude}
-
-    return data
+    return _asdict(inst, include_=include, exclude_=exclude, exclude_unset=exclude_unset)

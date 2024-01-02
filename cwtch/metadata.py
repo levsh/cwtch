@@ -2,15 +2,16 @@ import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from json import loads as json_loads
-from typing import Any
+
+from msgspec import Meta
 
 
-class TypeMetadata:
-    """Base class for type metadata."""
-
+class MetaConverter:
     def convert(self, value):
         return value
 
+
+class MetaValidator:
     def validate_before(self, value, /):
         pass
 
@@ -19,61 +20,7 @@ class TypeMetadata:
 
 
 @dataclass(frozen=True, slots=True)
-class Ge(TypeMetadata):
-    value: Any
-
-    def validate_after(self, value):
-        if value < self.value:
-            raise ValueError(f"value should be >= {self.value}")
-
-
-@dataclass(frozen=True, slots=True)
-class Gt(TypeMetadata):
-    value: Any
-
-    def validate_after(self, value):
-        if value <= self.value:
-            raise ValueError(f"value should be > {self.value}")
-
-
-@dataclass(frozen=True, slots=True)
-class Le(TypeMetadata):
-    value: Any
-
-    def validate_after(self, value):
-        if value > self.value:
-            raise ValueError(f"value should be <= {self.value}")
-
-
-@dataclass(frozen=True, slots=True)
-class Lt(TypeMetadata):
-    value: Any
-
-    def validate_after(self, value):
-        if value >= self.value:
-            raise ValueError(f"value should be < {self.value}")
-
-
-@dataclass(frozen=True, slots=True)
-class MinLen(TypeMetadata):
-    value: int
-
-    def validate_after(self, value):
-        if len(value) < self.value:
-            raise ValueError(f"value length should be >= {self.value}")
-
-
-@dataclass(frozen=True, slots=True)
-class MaxLen(TypeMetadata):
-    value: int
-
-    def validate_after(self, value):
-        if len(value) > self.value:
-            raise ValueError(f"value length should be <= {self.value}")
-
-
-@dataclass(frozen=True, slots=True)
-class Match(TypeMetadata):
+class MatchValidator(MetaValidator):
     pattern: re.Pattern
 
     def validate_after(self, value: str):
@@ -82,7 +29,7 @@ class Match(TypeMetadata):
 
 
 @dataclass(frozen=True, slots=True)
-class UrlConstraints(TypeMetadata):
+class UrlValidator(MetaValidator):
     schemes: list[str] | None = dataclass_field(default=None)
     ports: list[int] | None = dataclass_field(default=None)
 
@@ -97,6 +44,6 @@ class UrlConstraints(TypeMetadata):
 
 
 @dataclass(frozen=True, slots=True)
-class JsonValue(TypeMetadata):
+class JsonConverter(MetaConverter):
     def convert(self, value, /):
         return json_loads(value)
