@@ -12,7 +12,12 @@ from cattrs import structure
 from pydantic import BaseModel
 
 from cwtch import (
-    Meta,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+    MaxLen,
+    MinLen,
     SecretStr,
     SecretUrl,
     ValidationError,
@@ -127,20 +132,20 @@ def test_validate_literal():
 
 
 def test_validate_annotated():
-    assert validate_value(1, Annotated[int, Meta(ge=1)]) == 1
+    assert validate_value(1, Annotated[int, Ge(1)]) == 1
     with pytest.raises(
         ValidationError,
-        match=re.escape(("validation error for typing.Annotated[int, msgspec.Meta(ge=1)]\n  - value should be >= 1")),
+        match=re.escape(("validation error for typing.Annotated[int, Ge(value=1)]\n  - value should be >= 1")),
     ):
-        validate_value(0, Annotated[int, Meta(ge=1)])
-    assert validate_value(1, Annotated[Annotated[int, Meta(ge=0)], Meta(ge=1)]) == 1
+        validate_value(0, Annotated[int, Ge(1)])
+    assert validate_value(1, Annotated[Annotated[int, Ge(0)], Ge(1)]) == 1
     with pytest.raises(
         ValidationError,
         match=re.escape(
-            "validation error for typing.Annotated[int, msgspec.Meta(ge=2), msgspec.Meta(ge=1)]\n  - value should be >= 2"
+            "validation error for typing.Annotated[int, Ge(value=2), Ge(value=1)]\n  - value should be >= 2"
         ),
     ):
-        validate_value(1, Annotated[Annotated[int, Meta(ge=2)], Meta(ge=1)])
+        validate_value(1, Annotated[Annotated[int, Ge(2)], Ge(1)])
 
 
 def test_validate_model_simple():
@@ -224,22 +229,22 @@ def test_validate_mapping():
 
 
 def test_validate_annotated_complex():
-    assert validate_value([1, 2], list[Annotated[int, Meta(ge=1)]]) == [1, 2]
+    assert validate_value([1, 2], list[Annotated[int, Ge(1)]]) == [1, 2]
     with pytest.raises(
         ValidationError,
         match=re.escape(
-            "validation error for list[typing.Annotated[int, msgspec.Meta(ge=1)]] path=[2]\n  - value should be >= 1"
+            "validation error for list[typing.Annotated[int, Ge(value=1)]] path=[2]\n  - value should be >= 1"
         ),
     ):
-        validate_value([1, 2, 0], list[Annotated[int, Meta(ge=1)]])
-    assert validate_value((1, 2), list[Annotated[int, Meta(ge=1)]]) == [1, 2]
+        validate_value([1, 2, 0], list[Annotated[int, Ge(1)]])
+    assert validate_value((1, 2), list[Annotated[int, Ge(1)]]) == [1, 2]
     with pytest.raises(
         ValidationError,
         match=re.escape(
-            "validation error for list[typing.Annotated[int, msgspec.Meta(ge=1)]] path=[2]\n  - value should be >= 1"
+            "validation error for list[typing.Annotated[int, Ge(value=1)]] path=[2]\n  - value should be >= 1"
         ),
     ):
-        validate_value((1, 2, 0), list[Annotated[int, Meta(ge=1)]])
+        validate_value((1, 2, 0), list[Annotated[int, Ge(1)]])
 
 
 def test_validate_union():
@@ -249,13 +254,13 @@ def test_validate_union():
     assert validate_value(1, float | str) == 1.0
     with pytest.raises(ValidationError):
         assert validate_value("a", int | float) == "a"
-    T = Annotated[int | float, Meta(ge=1)]
+    T = Annotated[int | float, Ge(1)]
     assert validate_value("a", T | str) == "a"
     with pytest.raises(
         ValidationError,
         match=re.escape(
             (
-                "validation error for typing.Union[typing.Annotated[int | float, msgspec.Meta(ge=1)], bool]\n"
+                "validation error for typing.Union[typing.Annotated[int | float, Ge(value=1)], bool]\n"
                 "  - invalid literal for int() with base 10: 'a'\n"
                 "  - could not convert string to float: 'a'\n"
                 "  - invalid value for <class 'bool'>"
@@ -286,8 +291,8 @@ def test_model():
         ti: tuple[int, ...] = field()
         d: dict = field()
         dd: dict[str, int] = field()
-        ai: Annotated[int, Meta(ge=0)] = field()
-        al: Annotated[list[int], Meta(min_length=1)] = field()
+        ai: Annotated[int, Ge(0)] = field()
+        al: Annotated[list[int], MinLen(1)] = field()
 
     # assert A.__base__ == Base
 
@@ -643,19 +648,19 @@ def test_make_json_schema():
     assert make_json_schema(set[int]) == ({"type": "array", "items": {"type": "integer"}}, {})
     assert make_json_schema(dict) == ({"type": "object"}, {})
     assert make_json_schema(Literal["A", 1]) == ({"enum": ["A", 1]}, {})
-    assert make_json_schema(Annotated[int, Meta(ge=1, le=10)]) == ({"type": "integer", "minimum": 1, "maximum": 10}, {})
-    assert make_json_schema(Annotated[int, Meta(gt=1, lt=10)]) == (
+    assert make_json_schema(Annotated[int, Ge(1), Le(10)]) == ({"type": "integer", "minimum": 1, "maximum": 10}, {})
+    assert make_json_schema(Annotated[int, Gt(1), Lt(10)]) == (
         {"type": "integer", "exclusiveMinimum": True, "minimum": 1, "exclusiveMaximum": True, "maximum": 10},
         {},
     )
-    assert make_json_schema(Annotated[str, Meta(min_length=1, max_length=10)]) == (
+    assert make_json_schema(Annotated[str, MinLen(1), MaxLen(10)]) == (
         {"type": "string", "minLength": 1, "maxLength": 10},
         {},
     )
 
     @define
     class Model:
-        i: Annotated[int, Meta(ge=1, lt=10)]
+        i: Annotated[int, Ge(1), Lt(10)]
         s: str
         l: list
         f: list[float]

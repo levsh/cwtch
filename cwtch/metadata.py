@@ -2,16 +2,18 @@ import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from json import loads as json_loads
+from typing import Any
 
-from msgspec import Meta
 
+class TypeMetadata:
+    """Base class for type metadata."""
 
-class MetaConverter:
+    def json_schema(self) -> dict:
+        return {}
+
     def convert(self, value):
         return value
 
-
-class MetaValidator:
     def validate_before(self, value, /):
         pass
 
@@ -20,7 +22,79 @@ class MetaValidator:
 
 
 @dataclass(frozen=True, slots=True)
-class MatchValidator(MetaValidator):
+class Ge(TypeMetadata):
+    value: Any
+
+    def json_schema(self) -> dict:
+        return {"minimum": self.value}
+
+    def validate_after(self, value):
+        if value < self.value:
+            raise ValueError(f"value should be >= {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class Gt(TypeMetadata):
+    value: Any
+
+    def json_schema(self) -> dict:
+        return {"minimum": self.value, "exclusiveMinimum": True}
+
+    def validate_after(self, value):
+        if value <= self.value:
+            raise ValueError(f"value should be > {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class Le(TypeMetadata):
+    value: Any
+
+    def json_schema(self) -> dict:
+        return {"maximum": self.value}
+
+    def validate_after(self, value):
+        if value > self.value:
+            raise ValueError(f"value should be <= {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class Lt(TypeMetadata):
+    value: Any
+
+    def json_schema(self) -> dict:
+        return {"maximum": self.value, "exclusiveMaximum": True}
+
+    def validate_after(self, value):
+        if value >= self.value:
+            raise ValueError(f"value should be < {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class MinLen(TypeMetadata):
+    value: int
+
+    def json_schema(self) -> dict:
+        return {"minLength": self.value}
+
+    def validate_after(self, value):
+        if len(value) < self.value:
+            raise ValueError(f"value length should be >= {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class MaxLen(TypeMetadata):
+    value: int
+
+    def json_schema(self) -> dict:
+        return {"maxLength": self.value}
+
+    def validate_after(self, value):
+        if len(value) > self.value:
+            raise ValueError(f"value length should be <= {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class Match(TypeMetadata):
     pattern: re.Pattern
 
     def validate_after(self, value: str):
@@ -29,7 +103,7 @@ class MatchValidator(MetaValidator):
 
 
 @dataclass(frozen=True, slots=True)
-class UrlValidator(MetaValidator):
+class UrlConstraints(TypeMetadata):
     schemes: list[str] | None = dataclass_field(default=None)
     ports: list[int] | None = dataclass_field(default=None)
 
@@ -44,6 +118,6 @@ class UrlValidator(MetaValidator):
 
 
 @dataclass(frozen=True, slots=True)
-class JsonConverter(MetaConverter):
+class JsonValue(TypeMetadata):
     def convert(self, value, /):
         return json_loads(value)

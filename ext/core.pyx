@@ -8,9 +8,10 @@ from json import JSONDecodeError
 import cython
 from attrs import NOTHING
 from attrs import field as attrs_field
-from msgspec import UNSET, Meta, UnsetType
 
 from .errors import ValidationError
+from .types import UnsetType, UNSET
+from .metadata import TypeMetadata
 
 
 cdef extern from "Python.h":
@@ -523,26 +524,6 @@ def make():
             raise ValueError("not callable")
         return value
 
-    def _validate_metadata(value, metadata):
-        if (ge := metadata.ge) is not None:
-            if value < ge:
-                raise ValueError(f"value should be >= {ge}")
-        if (gt := metadata.gt) is not None:
-            if value <= gt:
-                raise ValueError(f"value should be > {gt}")
-        if (le := metadata.le) is not None:
-            if value > le:
-                raise ValueError(f"value should be <= {le}")
-        if (lt := metadata.lt) is not None:
-            if value >= lt:
-                raise ValueError(f"value should be < {lt}")
-        if (min_length := metadata.min_length) is not None:
-            if len(value) < min_length:
-                raise ValueError(f"value length should be >= {min_length}")
-        if (max_length := metadata.max_length) is not None:
-            if len(value) < max_length:
-                raise ValueError(f"value length should be <= {max_length}")
-
     def validate_annotated(value, T, /):
         __metadata__ = T.__metadata__
 
@@ -560,8 +541,6 @@ def make():
         for metadata in __metadata__:
             if validator := getattr(metadata, "validate_after", None):
                 validator(value)
-            elif isinstance(metadata, Meta):
-                _validate_metadata(value, metadata)
 
         return value
 
@@ -664,40 +643,22 @@ def make():
             raise Exception(T)
         return builder(T, ref_builder=ref_builder)
 
-    def make_json_schema_from_metadata(metadata) -> dict:
-        schema = {}
-        if metadata.ge:
-            schema["minimum"] = metadata.ge
-        if metadata.gt:
-            schema["exclusiveMinimum"] = True
-            schema["minimum"] = metadata.gt
-        if metadata.le:
-            schema["maximum"] = metadata.le
-        if metadata.lt:
-            schema["exclusiveMaximum"] = True
-            schema["maximum"] = metadata.lt
-        if metadata.min_length:
-            schema["minLength"] = metadata.min_length
-        if metadata.max_length:
-            schema["maxLength"] = metadata.max_length
-        return schema
-
     def make_json_schema_int(T, ref_builder=None):
         schema = {"type": "integer"}
-        if metadata := next(filter(lambda item: isinstance(item, Meta), getattr(T, "__metadata__", ())), None):
-            schema.update(make_json_schema_from_metadata(metadata))
+        for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
+            schema.update(metadata.json_schema())
         return schema, {}
 
     def make_json_schema_float(T, ref_builder=None):
         schema = {"type": "number"}
-        if metadata := next(filter(lambda item: isinstance(item, Meta), getattr(T, "__metadata__", ())), None):
-            schema.update(make_json_schema_from_metadata(metadata))
+        for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
+            schema.update(metadata.json_schema())
         return schema, {}
 
     def make_json_schema_str(T, ref_builder=None):
         schema = {"type": "string"}
-        if metadata := next(filter(lambda item: isinstance(item, Meta), getattr(T, "__metadata__", ())), None):
-            schema.update(make_json_schema_from_metadata(metadata))
+        for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
+            schema.update(metadata.json_schema())
         return schema, {}
 
     def make_json_schema_bool(T, ref_builder=None):
@@ -706,8 +667,8 @@ def make():
 
     def make_json_schema_annotated(T, ref_builder=None):
         schema, refs = make_json_schema(T.__origin__, ref_builder=ref_builder)
-        if metadata := next(filter(lambda item: isinstance(item, Meta), T.__metadata__), None):
-            schema.update(make_json_schema_from_metadata(metadata))
+        for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
+            schema.update(metadata.json_schema())
         return schema, refs
 
     def make_json_schema_union(T, ref_builder=None):

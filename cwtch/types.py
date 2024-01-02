@@ -1,9 +1,19 @@
 from typing import TypeVar
 from urllib.parse import urlparse
 
-from msgspec import UnsetType
-
 T = TypeVar("T")
+
+
+class UnsetType:
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
+
+
+UNSET = UnsetType()
+
 
 Unset = T | UnsetType
 
