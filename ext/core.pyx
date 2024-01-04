@@ -4,10 +4,12 @@
 
 from contextvars import ContextVar
 from json import JSONDecodeError
+from uuid import UUID
 
 import cython
 from attrs import NOTHING
 from attrs import field as attrs_field
+from enum import EnumType, Enum
 
 from .errors import ValidationError
 from .types import UnsetType, UNSET
@@ -52,13 +54,11 @@ def make_bases():
 
         parameters = dict(zip(cls.__parameters__, parameters))
 
-        cls_attrs = ("__call__", "__str__", "__repr__")
-
         class Proxy:
             def __getattribute__(self, attr):
-                if attr not in cls_attrs:
-                    return object_getattribute(cls, attr)
-                return object_getattribute(self, attr)
+                if attr == "is_proxy":
+                    return True
+                return object_getattribute(result, attr)
 
             def __str__(self):
                 return result.__str__()
@@ -222,10 +222,14 @@ def make():
                 return cache_value if cache["reset_circular_refs"] is False else _UNSET
             try:
                 if isinstance(value, dict):
+                    if getattr(T, "is_proxy", None) is True:
+                        return T(_cwtch_cache_key=cache_key, **value)
                     return origin(_cwtch_cache_key=cache_key, **value)
-                if isinstance(value, origin):
+                if isinstance(value, origin) and getattr(T, "is_proxy", None) is not True:
                     return value
                 kwds = {a.name: getattr(value, a.name) for a in origin.__attrs_attrs__}
+                if getattr(T, "is_proxy", None) is True:
+                    return T(_cwtch_cache_key=cache_key, **kwds)
                 return origin(_cwtch_cache_key=cache_key, **kwds)
             finally:
                 cache.pop(cache_key, None)
@@ -275,14 +279,14 @@ def make():
                     if validator == validate_any:
                         return value
                     return [validator(x, T_arg) for x in value]
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     i: cython.int = 0
                     validator = get_validator(T_arg)
                     try:
                         for x in value:
                             validator(x, T_arg)
                             i += 1
-                    except Exception as e:
+                    except (TypeError, ValueError, ValidationError) as e:
                         if isinstance(e, ValidationError) and e.path:
                             path = [i] + e.path
                         else:
@@ -309,14 +313,14 @@ def make():
                 if validator == validate_any:
                     return [x for x in value]
                 return [validator(x, T_arg) for x in value]
-            except Exception as e:
+            except (TypeError, ValueError, ValidationError) as e:
                 i: cython.int = 0
                 validator = get_validator(T_arg)
                 try:
                     for x in value:
                         validator(x, T_arg)
                         i += 1
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     if isinstance(e, ValidationError) and e.path:
                         path = [i] + e.path
                     else:
@@ -336,14 +340,14 @@ def make():
                             else get_validator(getattr(T_arg, "__origin__", T_arg))(x, T_arg)
                             for x, T_arg in zip(value, T_args)
                         )
-                    except Exception as e:
+                    except (TypeError, ValueError, ValidationError) as e:
                         i: cython.int = 0
                         validator = get_validator(T_arg)
                         try:
                             for x in value:
                                 validator(x, T_arg)
                                 i += 1
-                        except Exception as e:
+                        except (TypeError, ValueError, ValidationError) as e:
                             if isinstance(e, ValidationError) and e.path:
                                 path = [i] + e.path
                             else:
@@ -368,14 +372,14 @@ def make():
                     if validator == validate_any:
                         return value
                     return tuple(validator(x, T_arg) for x in value)
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     i: cython.int = 0
                     validator = get_validator(T_arg)
                     try:
                         for x in value:
                             validator(x, T_arg)
                             i += 1
-                    except Exception as e:
+                    except (TypeError, ValueError, ValidationError) as e:
                         if isinstance(e, ValidationError) and e.path:
                             path = [i] + e.path
                         else:
@@ -395,14 +399,14 @@ def make():
                         else get_validator(getattr(T_arg, "__origin__", T_arg))(x, T_arg)
                         for x, T_arg in zip(value, T_args)
                     )
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     i: cython.int = 0
                     validator = get_validator(T_arg)
                     try:
                         for x in value:
                             validator(x, T_arg)
                             i += 1
-                    except Exception as e:
+                    except (TypeError, ValueError, ValidationError) as e:
                         if isinstance(e, ValidationError) and e.path:
                             path = [i] + e.path
                         else:
@@ -427,14 +431,14 @@ def make():
                 if validator == validate_any:
                     return tuple(value)
                 return tuple(validator(x, T_arg) for x in value)
-            except Exception as e:
+            except (TypeError, ValueError, ValidationError) as e:
                 i: cython.int = 0
                 validator = get_validator(T_arg)
                 try:
                     for x in value:
                         validator(x, T_arg)
                         i += 1
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     if isinstance(e, ValidationError) and e.path:
                         path = [i] + e.path
                     else:
@@ -462,13 +466,13 @@ def make():
                     k if isinstance(k, T_k) else validator_k(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v)
                     for k, v in value.items()
                 }
-            except Exception as e:
+            except (TypeError, ValueError, ValidationError) as e:
                 validator_k = get_validator(getattr(T_k, "__origin__", T_k))
                 for k, v in value.items():
                     try:
                         validator_k(k, T_k)
                         validator_v(v, T_v)
-                    except Exception as e:
+                    except (TypeError, ValueError, ValidationError) as e:
                         if isinstance(e, ValidationError) and e.path:
                             path = [k] + e.path
                         else:
@@ -493,13 +497,13 @@ def make():
                     k if isinstance(k, T_k) else validator_k(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v)
                     for k, v in value.items()
                 }
-            except Exception as e:
+            except (TypeError, ValueError, ValidationError) as e:
                 validator_k = get_validator(getattr(T_k, "__origin__", T_k))
                 for k, v in value.items():
                     try:
                         validator_k(k, T_k)
                         validator_v(v, T_v)
-                    except Exception as e:
+                    except (TypeError, ValueError, ValidationError) as e:
                         if isinstance(e, ValidationError) and e.path:
                             path = [k] + e.path
                         else:
@@ -633,97 +637,139 @@ def make():
             if parameters := cache_get().get("parameters"):
                 e.parameters = parameters
             raise e
-        except Exception as e:
+        except (TypeError, ValueError) as e:
             parameters = cache_get().get("parameters")
             raise ValidationError(value, T, [e], parameters=parameters)
 
-    def make_json_schema(T, ref_builder=lambda model: f"#/$defs/{model.__name__}") -> tuple[dict, dict]:
-        builder = json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
-        if builder is None:
-            raise Exception(T)
-        return builder(T, ref_builder=ref_builder)
+    def make_json_schema(
+        T,
+        ref_builder=lambda T: f"#/$defs/{getattr(T, '__origin__', T).__name__}",
+        hook=None,
+    ) -> tuple[dict, dict]:
+        if builder := getattr(T, "__cwtch_json_schema__", None):
+            schema = builder()
+            for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
+                schema.update(metadata.json_schema())
+            return schema, {}
+        if builder := get_json_schema_builder(T):
+            return builder(T, ref_builder=ref_builder, hook=hook)
+        if hook:
+            return hook(T, ref_builder=ref_builder, hook=hook)
+        raise Exception(f"missing json schema builder for {T}")
 
-    def make_json_schema_int(T, ref_builder=None):
+    def make_json_schema_none(T, ref_builder=None, hook=None):
+        return {"type": "null"}, {}
+
+    def make_json_schema_enum(T, ref_builder=None, hook=None):
+        return {"enum": [f"{v}" for v in T.__members__.values()]}, {}
+
+    def make_json_schema_int(T, ref_builder=None, hook=None):
         schema = {"type": "integer"}
         for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
             schema.update(metadata.json_schema())
         return schema, {}
 
-    def make_json_schema_float(T, ref_builder=None):
+    def make_json_schema_float(T, ref_builder=None, hook=None):
         schema = {"type": "number"}
         for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
             schema.update(metadata.json_schema())
         return schema, {}
 
-    def make_json_schema_str(T, ref_builder=None):
+    def make_json_schema_str(T, ref_builder=None, hook=None):
         schema = {"type": "string"}
         for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
             schema.update(metadata.json_schema())
         return schema, {}
 
-    def make_json_schema_bool(T, ref_builder=None):
-        schema = {"type": "boolean"}
-        return schema, {}
+    def make_json_schema_bool(T, ref_builder=None, hook=None):
+        return {"type": "boolean"}, {}
 
-    def make_json_schema_annotated(T, ref_builder=None):
-        schema, refs = make_json_schema(T.__origin__, ref_builder=ref_builder)
+    def make_json_schema_annotated(T, ref_builder=None, hook=None):
+        schema, refs = make_json_schema(T.__origin__, ref_builder=ref_builder, hook=hook)
         for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
             schema.update(metadata.json_schema())
         return schema, refs
 
-    def make_json_schema_union(T, ref_builder=None):
+    def make_json_schema_union(T, ref_builder=None, hook=None):
         schemas = []
         refs = {}
         for arg in T.__args__:
-            arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder)
+            if arg == UnsetType:
+                continue
+            arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder, hook=hook)
             schemas.append(arg_schema)
             refs.update(arg_refs)
         return {"oneOf": schemas}, refs
 
-    def make_json_schema_list(T, ref_builder=None):
+    def make_json_schema_list(T, ref_builder=None, hook=None):
         schema = {"type": "array"}
         refs = {}
         if hasattr(T, "__args__"):
-            items_schema, refs = make_json_schema(T.__args__[0], ref_builder=ref_builder)
+            items_schema, refs = make_json_schema(T.__args__[0], ref_builder=ref_builder, hook=hook)
             schema["items"] = items_schema
         return schema, refs
 
-    def make_json_schema_tuple(T, ref_builder=None):
-        schema = {"type": "array"}
+    def make_json_schema_tuple(T, ref_builder=None, hook=None):
+        schema = {"type": "array", "items": False}
         refs = {}
         if hasattr(T, "__args__"):
             schema["prefixItems"] = []
             for arg in T.__args__:
                 if arg == ...:
                     raise Exception("Ellipsis is not supported")
-                arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder)
+                arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder, hook=hook)
                 schema["prefixItems"].append(arg_schema)
                 refs.update(arg_refs)
         return schema, refs
 
-    def make_json_schema_dict(T, ref_builder=None):
+    def make_json_schema_set(T, ref_builder=None, hook=None):
+        schema = {"type": "array", "uniqueItems": True}
+        refs = {}
+        if hasattr(T, "__args__"):
+            items_schema, refs = make_json_schema(T.__args__[0], ref_builder=ref_builder, hook=hook)
+            schema["items"] = items_schema
+        return schema, refs
+
+    def make_json_schema_dict(T, ref_builder=None, hook=None):
         return {"type": "object"}, {}
 
-    def make_json_schema_literal(T, ref_builder=None):
+    def make_json_schema_literal(T, ref_builder=None, hook=None):
         return {"enum": list(T.__args__)}, {}
 
-    def make_json_schema_datetime(T, ref_builder=None):
+    def make_json_schema_datetime(T, ref_builder=None, hook=None):
         return {"type": "string", "format": "date-time"}, {}
 
-    def make_json_schema_date(T, ref_builder=None):
+    def make_json_schema_date(T, ref_builder=None, hook=None):
         return {"type": "string", "format": "date"}, {}
 
-    def make_json_schema_generic_alias(T, ref_builder=None):
-        builder = json_schema_builders_map.get(T.__origin__) or json_schema_builders_map.get(T.__origin__.__class__)
-        return builder(T, ref_builder=ref_builder)
+    def make_json_schema_uuid(T, ref_builder=None, hook=None):
+        return {"type": "string", "format": "uuid"}, {}
 
-    def make_json_schema_attrs(T, ref_builder=None):
+    def make_json_schema_generic_alias(T, ref_builder=None, hook=None):
+        if builder := get_json_schema_builder(T.__origin__):
+            return builder(T, ref_builder=ref_builder, hook=hook)
+        if hook:
+            return hook(T, ref_builder=ref_builder, hook=hook)
+        raise Exception(f"missing json schema builder for {T}")
+
+    def make_json_schema_attrs(T, ref_builder=None, hook=None):
         schema = {"type": "object"}
         refs = {}
         properties = {}
         required = []
-        for a in T.__attrs_attrs__:
-            a_schema, a_refs = make_json_schema(a.type, ref_builder=ref_builder)
+        origin = getattr(T, "__origin__", T)
+        if hasattr(origin, "__parameters__"):
+            type_parameters = dict(zip(origin.__parameters__, T.__args__))
+        else:
+            type_parameters = {}
+        for a in origin.__attrs_attrs__:
+            tp = a.type
+            if type_parameters:
+                if hasattr(a.type, "__typing_subst__"):
+                    tp = type_parameters[a.type]
+                elif hasattr(a.type, "__parameters__"):
+                    tp = a.type.__class_getitem__(*[type_parameters[tp] for tp in a.type.__parameters__])
+            a_schema, a_refs = make_json_schema(tp, ref_builder=ref_builder, hook=hook)
             properties[a.name] = a_schema
             refs.update(a_refs)
             if a.default == NOTHING:
@@ -740,6 +786,10 @@ def make():
         return schema, refs
 
     json_schema_builders_map = {}
+    json_schema_builders_map[None] = make_json_schema_none
+    json_schema_builders_map[None.__class__] = make_json_schema_none
+    json_schema_builders_map[Enum] = make_json_schema_enum
+    json_schema_builders_map[EnumType] = make_json_schema_enum
     json_schema_builders_map[int] = make_json_schema_int
     json_schema_builders_map[float] = make_json_schema_float
     json_schema_builders_map[str] = make_json_schema_str
@@ -748,7 +798,7 @@ def make():
     json_schema_builders_map[ViewMetaclass] = make_json_schema_attrs
     json_schema_builders_map[list] = make_json_schema_list
     json_schema_builders_map[tuple] = make_json_schema_tuple
-    json_schema_builders_map[set] = make_json_schema_list
+    json_schema_builders_map[set] = make_json_schema_set
     json_schema_builders_map[dict] = make_json_schema_dict
     json_schema_builders_map[Mapping] = make_json_schema_dict
     json_schema_builders_map[_AnnotatedAlias] = make_json_schema_annotated
@@ -760,11 +810,30 @@ def make():
     json_schema_builders_map[_UnionGenericAlias] = make_json_schema_union
     json_schema_builders_map[datetime] = make_json_schema_datetime
     json_schema_builders_map[date] = make_json_schema_date
+    json_schema_builders_map[UUID] = make_json_schema_uuid
 
-    return validators_map, get_validator, validate_value, make_json_schema
+    @functools.cache
+    def get_json_schema_builder(T, /):
+        return json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
+
+    return (
+        validators_map,
+        get_validator,
+        validate_value,
+        json_schema_builders_map,
+        get_json_schema_builder,
+        make_json_schema,
+    )
 
 
-validators_map, get_validator, validate_value, make_json_schema = make()
+(
+    _validators_map,
+    get_validator,
+    validate_value,
+    _json_schema_builders_map,
+    get_json_schema_builder,
+    make_json_schema,
+) = make()
 
 
 def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, **kwds):
@@ -793,7 +862,7 @@ def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, 
                         _setattr(self, attribute.name, validated_value)
                     for validator in original_validators:
                         validator(self, attribute, validated_value)
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     raise ValidationError(value, self.__class__, [e], path=[attribute.name])
 
         else:
@@ -806,7 +875,7 @@ def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, 
                         validated_value = _validate_value(value, attribute.type)
                     if validated_value != value:
                         _setattr(self, attribute.name, validated_value)
-                except Exception as e:
+                except (TypeError, ValueError, ValidationError) as e:
                     raise ValidationError(value, self.__class__, [e], path=[attribute.name])
 
         kwds["validator"] = validator
@@ -814,13 +883,26 @@ def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, 
     return attrs_field(*args, **kwds)
 
 
-def register_validator(T, validator):
-    validators_map[T] = validator
+def register_validator(T, validator, force: bool | None = None):
+    if T in _validators_map and not force:
+        raise Exception(f"validator for '{T}' already registered")
+    _validators_map[T] = validator
     get_validator.cache_clear()
 
 
+def register_json_schema_builder(T, builder, force: bool | None = None):
+    if T in _json_schema_builders_map and not force:
+        raise Exception(f"json schema builder for '{T}' already registered")
+    _json_schema_builders_map[T] = builder
+    get_json_schema_builder.cache_clear()
+
+
 def _asdict(inst, **kwds):
+    show_secrets = kwds.get("show_secrets", None)
+
     if not hasattr(inst, "__attrs_attrs__"):
+        if show_secrets and hasattr(v, "get_secret_value"):
+            return inst.get_secret_value()
         return inst
 
     include_ = kwds.get("include", None)
@@ -843,11 +925,13 @@ def _asdict(inst, **kwds):
     for k, v in items:
         if all(condition(k, v) for condition in conditions):
             if isinstance(v, list):
-                data[k] = [_asdict(x, exclude_unset=exclude_unset) for x in v]
+                data[k] = [_asdict(x, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v]
             elif isinstance(v, tuple):
-                data[k] = tuple(_asdict(x, exclude_unset=exclude_unset) for x in v)
+                data[k] = tuple(_asdict(x, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v)
             elif isinstance(v, dict):
-                data[k] = {kk: _asdict(vv, exclude_unset=exclude_unset) for kk, vv in v.items()}
+                data[k] = {
+                    kk: _asdict(vv, exclude_unset=exclude_unset, show_secrets=show_secrets) for kk, vv in v.items()
+                }
             else:
                 data[k] = _asdict(v, exclude_unset=exclude_unset)
     return data

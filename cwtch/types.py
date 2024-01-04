@@ -36,6 +36,10 @@ class SecretStr:
     def __len__(self):
         return len(self._value)
 
+    @classmethod
+    def __cwtch_json_schema__(cls) -> dict:
+        return {"type": "string"}
+
     def get_secret_value(self):
         return self._value
 
@@ -92,3 +96,7 @@ class SecretUrl(SecretStr):
     @property
     def fragment(self):
         return self._parsed.fragment
+
+    @classmethod
+    def __cwtch_json_schema__(cls) -> dict:
+        return {"type": "string", "format": "uri"}

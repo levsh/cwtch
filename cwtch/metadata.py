@@ -94,8 +94,35 @@ class MaxLen(TypeMetadata):
 
 
 @dataclass(frozen=True, slots=True)
+class MinItems(TypeMetadata):
+    value: int
+
+    def json_schema(self) -> dict:
+        return {"minItems": self.value}
+
+    def validate_after(self, value):
+        if len(value) < self.value:
+            raise ValueError(f"items count should be >= {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class MaxItems(TypeMetadata):
+    value: int
+
+    def json_schema(self) -> dict:
+        return {"maxItems": self.value}
+
+    def validate_after(self, value):
+        if len(value) > self.value:
+            raise ValueError(f"items count should be <= {self.value}")
+
+
+@dataclass(frozen=True, slots=True)
 class Match(TypeMetadata):
     pattern: re.Pattern
+
+    def json_schema(self) -> dict:
+        return {"pattern": self.pattern.pattern}
 
     def validate_after(self, value: str):
         if not self.pattern.match(value):

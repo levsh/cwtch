@@ -1,7 +1,8 @@
 from copy import deepcopy
 from inspect import _empty, signature
 from os import environ
-from typing import Any, Callable, Generic, Type, cast
+from types import UnionType
+from typing import Any, Callable, Generic, Type, Union, cast
 
 from attr._make import _AndValidator, _CountingAttr
 from attrs import NOTHING
@@ -120,7 +121,7 @@ def define(
     Args:
       env_prefix: prefix(or list of prefixes) for environment variables.
       env_source: environment variables source factory.
-      ignore_extra: ignore extra arguments passed to init.
+      ignore_extra: ignore extra arguments passed to init(default False).
     """
 
     kwds["kw_only"] = True
@@ -247,17 +248,19 @@ def define(
                         if (__cwtch_view__ := getattr(v, "__cwtch_view__", None)) is None or __cwtch_view__ == view
                     )
 
-            if recursive:
+            if recursive is not False:
 
                 def update_type(tp):
                     if (origin := getattr(tp, "__origin__", None)) is not None:
                         return tp.__class__(
-                            update_type(origin),
+                            update_type(getattr(tp, "__origin__", tp)),
                             tp.__metadata__
                             if hasattr(tp, "__metadata__")
                             else tuple(update_type(arg) for arg in tp.__args__),
                         )
-                    elif getattr(tp, "__cwtch_model__", None):
+                    if isinstance(tp, UnionType):
+                        return Union[*(update_type(arg) for arg in tp.__args__)]
+                    if getattr(tp, "__cwtch_model__", None):
                         if hasattr(tp, view_name):
                             return getattr(tp, view_name)
                     return tp
@@ -323,7 +326,7 @@ def view(
       include: set of field names to include from root model.
       exclude: set of field names to exclude from root model.
       validate: if False skip validation(default True).
-      ignore_extra: ignore extra arguments passed to init.
+      ignore_extra: ignore extra arguments passed to init(default False).
       recursive: ...
       lc: Python frame locals.
     """
@@ -413,5 +416,6 @@ def asdict(
     include: set[str] | None = None,
     exclude: set[str] | None = None,
     exclude_unset: bool | None = None,
+    show_secrets: bool | None = None,
 ) -> dict:
-    return _asdict(inst, include_=include, exclude_=exclude, exclude_unset=exclude_unset)
+    return _asdict(inst, include_=include, exclude_=exclude, exclude_unset=exclude_unset, show_secrets=show_secrets)

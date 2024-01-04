@@ -2,6 +2,7 @@ import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
+from enum import Enum
 from typing import Annotated, Any, ForwardRef, Generic, Literal, TypeVar
 from unittest import mock
 
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from cwtch import (
     Ge,
     Gt,
+    JsonValue,
     Le,
     Lt,
     MaxLen,
@@ -31,6 +33,7 @@ from cwtch import (
 )
 
 T = TypeVar("T")
+F = TypeVar("F")
 
 
 def test_validate_none():
@@ -45,6 +48,8 @@ def test_validate_int():
     assert validate_value(0, int) == 0
     assert validate_value(1, int) == 1
     assert validate_value("1", int) == 1
+    assert validate_value(True, int) == 1
+    assert validate_value(False, int) == 0
     with pytest.raises(
         ValidationError,
         match=re.escape("validation error for <class 'int'>\n  - invalid literal for int() with base 10: 'a'"),
@@ -67,6 +72,8 @@ def test_validate_float():
     assert validate_value(0, float) == 0.0
     assert validate_value(1, float) == 1.0
     assert validate_value("1.1", float) == 1.1
+    assert validate_value(True, float) == 1.0
+    assert validate_value(False, float) == 0.0
     with pytest.raises(
         ValidationError,
         match=re.escape("validation error for <class 'float'>\n  - could not convert string to float: 'a'"),
@@ -131,6 +138,19 @@ def test_validate_literal():
         validate_value("1", Literal[1])
 
 
+def test_validate_enum():
+    class E(str, Enum):
+        A = "a"
+
+    assert isinstance(validate_value("a", E), E)
+    assert validate_value("a", E) == E.A
+    with pytest.raises(
+        ValidationError,
+        match=re.escape("validation error for <enum 'E'>\n  - 1 is not a valid test_validate_enum.<locals>.E"),
+    ):
+        validate_value(1, E)
+
+
 def test_validate_annotated():
     assert validate_value(1, Annotated[int, Ge(1)]) == 1
     with pytest.raises(
@@ -149,7 +169,7 @@ def test_validate_annotated():
 
 
 def test_validate_model_simple():
-    @attrs.define
+    @define
     class M:
         i: int
         s: str
@@ -158,7 +178,7 @@ def test_validate_model_simple():
 
 
 def test_validate_list():
-    @attrs.define
+    @define
     class M:
         i: int
 
@@ -181,7 +201,7 @@ def test_validate_list():
 
 
 def test_validate_tuple():
-    @attrs.define
+    @define
     class M:
         i: int
 
@@ -200,7 +220,7 @@ def test_validate_tuple():
 
 
 def test_validate_mapping():
-    @attrs.define
+    @define
     class M:
         i: int
 
@@ -293,8 +313,6 @@ def test_model():
         dd: dict[str, int] = field()
         ai: Annotated[int, Ge(0)] = field()
         al: Annotated[list[int], MinLen(1)] = field()
-
-    # assert A.__base__ == Base
 
     a = A(
         i="1",
@@ -551,7 +569,7 @@ def test_generics():
         assert C[int](x=["a"]).x == [1]
 
 
-@pytest.mark.skip
+# @pytest.mark.skip
 def test_json_value_metadata():
     JsonList = Annotated[list, JsonValue()]
     JsonDict = Annotated[dict, JsonValue()]
@@ -578,16 +596,16 @@ def test_view_recursive():
 
     @define
     class B:
-        a: A
+        a: list[A] | None
 
         @view(recursive=True)
         class V:
             pass
 
-    B(a=A())
+    B(a=[A()])
 
-    assert B.__annotations__["a"] == A
-    assert B.V.__annotations__["a"] == A.V
+    assert B.__annotations__["a"] == list[A] | None
+    assert B.V.__annotations__["a"] == list[A.V] | None
 
 
 def test_json_schema():
@@ -639,13 +657,13 @@ def test_make_json_schema():
     assert make_json_schema(bool) == ({"type": "boolean"}, {})
     assert make_json_schema(list) == ({"type": "array"}, {})
     assert make_json_schema(list[int]) == ({"type": "array", "items": {"type": "integer"}}, {})
-    assert make_json_schema(tuple) == ({"type": "array"}, {})
+    assert make_json_schema(tuple) == ({"type": "array", "items": False}, {})
     assert make_json_schema(tuple[int, str]) == (
-        {"type": "array", "prefixItems": [{"type": "integer"}, {"type": "string"}]},
+        {"type": "array", "prefixItems": [{"type": "integer"}, {"type": "string"}], "items": False},
         {},
     )
-    assert make_json_schema(set) == ({"type": "array"}, {})
-    assert make_json_schema(set[int]) == ({"type": "array", "items": {"type": "integer"}}, {})
+    assert make_json_schema(set) == ({"type": "array", "uniqueItems": True}, {})
+    assert make_json_schema(set[int]) == ({"type": "array", "items": {"type": "integer"}, "uniqueItems": True}, {})
     assert make_json_schema(dict) == ({"type": "object"}, {})
     assert make_json_schema(Literal["A", 1]) == ({"enum": ["A", 1]}, {})
     assert make_json_schema(Annotated[int, Ge(1), Le(10)]) == ({"type": "integer", "minimum": 1, "maximum": 10}, {})
@@ -677,6 +695,22 @@ def test_make_json_schema():
                     "f": {"type": "array", "items": {"type": "number"}},
                 },
                 "required": ["i", "s", "l", "f"],
+            }
+        },
+    )
+
+    @define
+    class GenericModel(Generic[T, F]):
+        a: T
+        b: list[F]
+
+    assert make_json_schema(GenericModel[int, str]) == (
+        {"$ref": "#/$defs/GenericModel"},
+        {
+            "GenericModel": {
+                "type": "object",
+                "properties": {"a": {"type": "integer"}, "b": {"type": "array", "items": {"type": "string"}}},
+                "required": ["a", "b"],
             }
         },
     )
