@@ -31,6 +31,7 @@ pylint = "*"
 pytest = "*"
 pytest-benchmark = "*"
 pytest-cov = "*"
+psutil = "*"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "*"

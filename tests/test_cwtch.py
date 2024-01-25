@@ -6,11 +6,7 @@ from enum import Enum
 from typing import Annotated, Any, ForwardRef, Generic, Literal, TypeVar
 from unittest import mock
 
-import attrs
-import msgspec
 import pytest
-from cattrs import structure
-from pydantic import BaseModel
 
 from cwtch import (
     Ge,
@@ -24,7 +20,7 @@ from cwtch import (
     SecretUrl,
     ValidationError,
     asdict,
-    define,
+    dataclass,
     field,
     make_json_schema,
     validate_args,
@@ -41,6 +37,19 @@ def test_validate_none():
     for value in (0, 0.0, "a", True, False, object()):
         with pytest.raises(ValidationError, match=re.escape("value is not a None")):
             validate_value(value, None)
+
+
+def test_validate_bool():
+    for value in (1, "1", "true", "True", "TRUE", "y", "Y", "t", "yes", "Yes", "YES"):
+        assert validate_value(value, bool) is True
+    for value in (0, "0", "false", "False", "FALSE", "n", "N", "f", "no", "No", "NO"):
+        assert validate_value(value, bool) is False
+    for value in (-1, 2, "a"):
+        with pytest.raises(
+            ValidationError,
+            match=re.escape("validation error for <class 'bool'>\n  - could not convert value to bool"),
+        ):
+            validate_value(value, bool)
 
 
 def test_validate_int():
@@ -87,19 +96,6 @@ def test_validate_str():
     assert validate_value(None, str) == "None"
     assert validate_value(True, str) == "True"
     assert validate_value(False, str) == "False"
-
-
-def test_validate_bool():
-    for value in (1, "1", "true", "True", "TRUE", "y", "Y", "t", "yes", "Yes", "YES"):
-        assert validate_value(value, bool) is True
-    for value in (0, "0", "false", "False", "FALSE", "n", "N", "f", "no", "No", "NO"):
-        assert validate_value(value, bool) is False
-    for value in (-1, 2, "a"):
-        with pytest.raises(
-            ValidationError,
-            match=re.escape("validation error for <class 'bool'>\n  - invalid value for <class 'bool'>"),
-        ):
-            validate_value(value, bool)
 
 
 def test_validate_datetime():
@@ -168,17 +164,8 @@ def test_validate_annotated():
         validate_value(1, Annotated[Annotated[int, Ge(2)], Ge(1)])
 
 
-def test_validate_model_simple():
-    @define
-    class M:
-        i: int
-        s: str
-
-    assert validate_value({"i": 1, "s": "s"}, M) == M(i=1, s="s")
-
-
 def test_validate_list():
-    @define
+    @dataclass
     class M:
         i: int
 
@@ -201,7 +188,7 @@ def test_validate_list():
 
 
 def test_validate_tuple():
-    @define
+    @dataclass
     class M:
         i: int
 
@@ -219,8 +206,23 @@ def test_validate_tuple():
     assert validate_value([{"i": 0}], tuple[M]) == (M(i=0),)
 
 
+def test_validate_set():
+    @dataclass
+    class M:
+        i: int
+
+    assert validate_value(set(), set) == set()
+    assert validate_value(set(), set[int]) == set()
+    assert validate_value({0, 1}, set) == {0, 1}
+    assert validate_value({0, 1}, set[int]) == {0, 1}
+    assert validate_value({"0", "1"}, set[int]) == {0, 1}
+    assert validate_value([[0], [1]], set[tuple[int], tuple[int]]) == {(0,), (1,)}
+    assert validate_value([["0"], ["1"]], set[tuple[int], tuple[int]]) == {(0,), (1,)}
+    assert validate_value([["0"], ["y"]], set[tuple[bool], tuple[bool]]) == {(False,), (True,)}
+
+
 def test_validate_mapping():
-    @define
+    @dataclass
     class M:
         i: int
 
@@ -283,7 +285,7 @@ def test_validate_union():
                 "validation error for typing.Union[typing.Annotated[int | float, Ge(value=1)], bool]\n"
                 "  - invalid literal for int() with base 10: 'a'\n"
                 "  - could not convert string to float: 'a'\n"
-                "  - invalid value for <class 'bool'>"
+                "  - could not convert value to bool"
             )
         ),
     ):
@@ -299,8 +301,17 @@ def test_validate_abcmeta():
     assert validate_value([1], Sequence[int]) == [1]
 
 
+def test_validate_model_simple():
+    @dataclass
+    class M:
+        i: int
+        s: str
+
+    assert validate_value({"i": 1, "s": "s"}, M) == M(i=1, s="s")
+
+
 def test_model():
-    @define
+    @dataclass
     class A:
         i: int = field()
         s: str = field()
@@ -339,7 +350,7 @@ def test_model():
     assert a.ai == 1
     assert a.al == [0, 1]
 
-    @define
+    @dataclass
     class M:
         i: int = field()
         s: str = field(default="s")
@@ -348,7 +359,7 @@ def test_model():
         ValidationError,
         match=re.escape(
             (
-                "validation error for <class 'test_cwtch.M'> path=['i']\n"
+                "validation error for <class 'test_cwtch.test_model.<locals>.M'> path=['i']\n"
                 "  validation error for <class 'int'>\n"
                 "    - invalid literal for int() with base 10: 'a'"
             )
@@ -360,39 +371,24 @@ def test_model():
 def test_forward_ref():
     B = ForwardRef("B")
 
-    @define
+    @dataclass
     class A:
-        a1: "B" = field()
-        a2: B = field()
+        a1: "B"
+        a2: B
 
-    @define
+    @dataclass
     class B:
-        i: int = field()
+        i: int
 
-    attrs.resolve_types(A, globals(), locals())
+    A.update_forward_refs(globals(), locals())
 
     a = validate_value({"a1": {"i": 1}, "a2": {"i": 2}}, A)
     assert a.a1.i == 1
     assert a.a2.i == 2
 
 
-def test_post_init():
-    flag = False
-
-    @define
-    class A:
-        i: int = field()
-
-        def __attrs_post_init__(self):
-            nonlocal flag
-            flag = True
-
-    A(i=1)
-    assert flag
-
-
 def test_ignore_extra():
-    @define(ignore_extra=True)
+    @dataclass(ignore_extra=True)
     class A:
         i: int = field()
 
@@ -401,52 +397,55 @@ def test_ignore_extra():
 
 
 def test_inheritance():
-    @define
+    @dataclass
     class A:
         i: int = field()
 
-    @define
+    @dataclass
     class B(A):
         j: int = field()
 
-    @define(ignore_extra=True)
+    @dataclass(ignore_extra=True)
     class C(A):
         j: int = field()
 
 
 def test_env_prefix():
-    @define(env_prefix="TEST_")
+    @dataclass(env_prefix="TEST_")
     class M:
         i: int = field(default=0, env_var=True)
-
-    assert M.__cwtch_env_prefixes__ == ["TEST_"]
-    assert M.__cwtch_env_source__ is not None
+        j: int = field(default_factory=lambda: 7, env_var=True)
 
     env = {}
     with mock.patch.dict(os.environ, env, clear=True):
         assert M().i == 0
+        assert M().j == 7
 
     env = {"TEST_I": "1"}
     with mock.patch.dict(os.environ, env, clear=True):
         assert M().i == 1
+        assert M().j == 7
+
+    env = {"TEST_J": "0"}
+    with mock.patch.dict(os.environ, env, clear=True):
+        assert M().i == 0
+        assert M().j == 0
 
 
 def test_view():
-    validator_calls = []
-
-    @define
+    @dataclass
     class A:
-        i: int = field()
+        i: int
         j: int
-        s: str = field()
-        b: bool = field()
-        l: list[int] = field()
+        s: str
+        b: bool
+        l: list[int]
 
         @view(include={"i", "j"})
         class V1:
             j: int = 0
 
-        @view(exclude={"s", "b", "l"}, lc=locals())
+        @view(exclude={"s", "b", "l"})
         class V2:
             j: int = 0
 
@@ -454,17 +453,8 @@ def test_view():
         class V3:
             f: float
 
-        @i.validator
-        def validator1(*args):
-            validator_calls.append("validator1")
-
-        @i.validator
-        def validator2(*args):
-            validator_calls.append("validator2")
-
-        @V2.i.validator
-        def validator_V2(*args):
-            validator_calls.append("validator_V2")
+        def foo(self):
+            pass
 
     assert A.V1
     assert A.V1.__cwtch_view_name__ == "V1"
@@ -478,24 +468,18 @@ def test_view():
     assert aa.i == 1
     assert aa.j == 2
     assert aa.V1
-    assert validator_calls == ["validator1", "validator2"]
-    validator_calls.clear()
 
     v1 = aa.V1()
     assert v1.__cwtch_view_name__ == "V1"
     assert v1.__cwtch_view_base__ == A
     assert v1.i == 1
     assert v1.j == 2
-    assert validator_calls == ["validator1", "validator2"]
-    validator_calls.clear()
 
     v2 = aa.V2()
     assert v2.__cwtch_view_name__ == "V2"
     assert v2.__cwtch_view_base__ == A
     assert v2.i == 1
     assert v2.j == 2
-    assert validator_calls == ["validator1", "validator2", "validator_V2"]
-    validator_calls.clear()
 
     assert asdict(v1) == asdict(v2) == {"i": 1, "j": 2}
 
@@ -508,7 +492,7 @@ def test_view():
 
 
 def test_view_ignore_extra():
-    @define
+    @dataclass
     class A:
         i: int = field()
 
@@ -521,9 +505,9 @@ def test_view_ignore_extra():
 
 
 def test_view_validate():
-    @define
+    @dataclass
     class A:
-        i: int = field()
+        i: int
 
         @view
         class V1:
@@ -538,7 +522,7 @@ def test_view_validate():
 
 
 def test_generics():
-    @define
+    @dataclass
     class C(Generic[T]):
         x: list[T] = field()
 
@@ -549,7 +533,7 @@ def test_generics():
         ValidationError,
         match=re.escape(
             (
-                "validation error for <class 'test_cwtch.C'> path=['x']\n"
+                "validation error for <class 'test_cwtch.test_generics.<locals>.C'> path=['x']\n"
                 "  validation error for list[~T] parameters=[<class 'int'>] path=[0]\n"
                 "    - invalid literal for int() with base 10: 'a'"
             )
@@ -560,7 +544,7 @@ def test_generics():
         ValidationError,
         match=re.escape(
             (
-                "validation error for <class 'test_cwtch.C'> path=['x']\n"
+                "validation error for <class 'test_cwtch.test_generics.<locals>.C'> path=['x']\n"
                 "  validation error for list[~T] parameters=[<class 'int'>] path=[0]\n"
                 "    - invalid literal for int() with base 10: 'a'"
             )
@@ -569,12 +553,11 @@ def test_generics():
         assert C[int](x=["a"]).x == [1]
 
 
-# @pytest.mark.skip
 def test_json_value_metadata():
     JsonList = Annotated[list, JsonValue()]
     JsonDict = Annotated[dict, JsonValue()]
 
-    @define
+    @dataclass
     class M:
         args: JsonList | None = field(default=None)
         kwds: JsonDict | None = field(default=None)
@@ -585,7 +568,7 @@ def test_json_value_metadata():
 
 
 def test_view_recursive():
-    @define
+    @dataclass
     class A:
         i: int | None = None
         s: str | None = None
@@ -594,7 +577,7 @@ def test_view_recursive():
         class V:
             pass
 
-    @define
+    @dataclass
     class B:
         a: list[A] | None
 
@@ -606,19 +589,6 @@ def test_view_recursive():
 
     assert B.__annotations__["a"] == list[A] | None
     assert B.V.__annotations__["a"] == list[A.V] | None
-
-
-def test_json_schema():
-    @define
-    class SubModel:
-        i: int
-
-    @define
-    class Model:
-        i: int = field()
-        m: SubModel
-
-    msgspec.json.schema_components([Model, SubModel])
 
 
 def test_validate_call():
@@ -676,7 +646,7 @@ def test_make_json_schema():
         {},
     )
 
-    @define
+    @dataclass
     class Model:
         i: Annotated[int, Ge(1), Lt(10)]
         s: str
@@ -699,7 +669,7 @@ def test_make_json_schema():
         },
     )
 
-    @define
+    @dataclass
     class GenericModel(Generic[T, F]):
         a: T
         b: list[F]

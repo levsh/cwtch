@@ -7,8 +7,9 @@ from json import JSONDecodeError
 from uuid import UUID
 
 import cython
-from attrs import NOTHING
-from attrs import field as attrs_field
+from dataclasses import MISSING
+from dataclasses import field as dataclasses_field
+from dataclasses import fields as dataclasses_fields
 from enum import EnumType, Enum
 
 from .errors import ValidationError
@@ -26,6 +27,7 @@ cdef extern from "Python.h":
 
 
 _cache = ContextVar("_cache", default={})
+_parameters = ContextVar("_parameters", default=[])
 
 
 class Metaclass(type):
@@ -42,139 +44,6 @@ class Metaclass(type):
 
 class ViewMetaclass(type):
     pass
-
-
-def make_bases():
-    cache_get = _cache.get
-    object_getattribute = object.__getattribute__
-
-    def class_getitem(cls, parameters, result):
-        if not isinstance(parameters, tuple):
-            parameters = (parameters,)
-
-        parameters = dict(zip(cls.__parameters__, parameters))
-
-        class Proxy:
-            def __getattribute__(self, attr):
-                if attr == "is_proxy":
-                    return True
-                return object_getattribute(result, attr)
-
-            def __str__(self):
-                return result.__str__()
-
-            def __repr__(self):
-                return result.__repr__()
-
-            def __call__(self, *args, **kwds):
-                cache_get()["parameters"] = parameters
-                try:
-                    return result(*args, **kwds)
-                finally:
-                    cache_get().pop("parameters", None)
-
-        return Proxy()
-
-    class Base(metaclass=Metaclass):
-        def __init__(self, *, _cwtch_cache_key=None, **kwds):
-            if _cwtch_cache_key is not None:
-                cache_get()[_cwtch_cache_key] = self
-            PyObject_Call(self.__attrs_init__, (), kwds)
-
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)
-            return class_getitem(cls, parameters, result)
-
-    class BaseIgnoreExtra(metaclass=Metaclass):
-        def __init__(self, *, _cwtch_cache_key=None, **kwds):
-            if _cwtch_cache_key is not None:
-                cache_get()[_cwtch_cache_key] = self
-            filtered = {attr.name: kwds[attr.name] for attr in self.__attrs_attrs__ if attr.name in kwds}
-            PyObject_Call(self.__attrs_init__, (), filtered)
-
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)
-            return class_getitem(cls, parameters, result)
-
-    class ViewBase(metaclass=ViewMetaclass):
-        def __init__(self, *, _cwtch_cache_key=None, **kwds):
-            if _cwtch_cache_key is not None:
-                cache_get()[_cwtch_cache_key] = self
-            PyObject_Call(self.__attrs_init__, (), kwds)
-
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)
-            return class_getitem(cls, parameters, result)
-
-    class ViewBaseIgnoreExtra(metaclass=ViewMetaclass):
-        def __init__(self, *, _cwtch_cache_key=None, **kwds):
-            if _cwtch_cache_key is not None:
-                cache_get()[_cwtch_cache_key] = self
-            filtered = {attr.name: kwds[attr.name] for attr in self.__attrs_attrs__ if attr.name in kwds}
-            PyObject_Call(self.__attrs_init__, (), filtered)
-
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)
-            return class_getitem(cls, parameters, result)
-
-    class EnvBase(metaclass=Metaclass):
-        def __init__(self, *, _cwtch_cache_key=None, **kwds):
-            if _cwtch_cache_key is not None:
-                cache_get()[_cwtch_cache_key] = self
-
-            data = {}
-            prefixes = self.__cwtch_env_prefixes__
-            if prefixes:
-                env_source = self.__cwtch_env_source__()
-                for attr in self.__attrs_attrs__:
-                    if env_var := attr.metadata.get("env_var"):
-                        for prefix in prefixes:
-                            if isinstance(env_var, str):
-                                key = env_var
-                            else:
-                                key = f"{prefix}{attr.name}".upper()
-                            if key in env_source:
-                                data[attr.name] = env_source[key]
-                                break
-            data.update(kwds)
-            PyObject_Call(self.__attrs_init__, (), data)
-
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)
-            return class_getitem(cls, parameters, result)
-
-    class EnvBaseIgnoreExtra(metaclass=Metaclass):
-        def __init__(self, *, _cwtch_cache_key=None, **kwds):
-            if _cwtch_cache_key is not None:
-                cache_get()[_cwtch_cache_key] = self
-
-            data = {}
-            prefixes = self.__cwtch_env_prefixes__
-            if prefixes:
-                env_source = self.__cwtch_env_source__()
-                for attr in self.__attrs_attrs__:
-                    if env_var := attr.metadata.get("env_var"):
-                        for prefix in prefixes:
-                            if isinstance(env_var, str):
-                                key = env_var
-                            else:
-                                key = f"{prefix}{attr.name}".upper()
-                            if key in env_source:
-                                data[attr.name] = env_source[key]
-                                break
-
-            filtered = {attr.name: kwds[attr.name] for attr in self.__attrs_attrs__ if attr.name in kwds}
-            data.update(filtered)
-            PyObject_Call(self.__attrs_init__, (), filtered)
-
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)
-            return class_getitem(cls, parameters, result)
-
-    return Base, BaseIgnoreExtra, ViewBase, ViewBaseIgnoreExtra, EnvBase, EnvBaseIgnoreExtra
-
-
-Base, BaseIgnoreExtra, ViewBase, ViewBaseIgnoreExtra, EnvBase, EnvBaseIgnoreExtra = make_bases()
 
 
 def make():
@@ -200,66 +69,87 @@ def make():
     )
 
     cache_get = _cache.get
-    true_map = {"1", "true", "t", "y", "yes", "True", "TRUE", "Y", "Yes", "YES"}
-    false_map = {"0", "false", "f", "n", "no", "False", "FALSE", "N", "No", "NO"}
+    true_map = (True, 1, "1", "true", "t", "y", "yes", "True", "TRUE", "Y", "Yes", "YES")
+    false_map = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No", "NO")
     datetime_fromisoformat = datetime.fromisoformat
     date_fromisoformat = date.fromisoformat
     _UNSET = UNSET
     NoneType = type(None)
+    parameters_get = _parameters.get
+    object_getattribute = object.__getattribute__
+
+    def class_getitem(cls, parameters, result):
+        if not isinstance(parameters, tuple):
+            parameters = (parameters,)
+
+        parameters = dict(zip(cls.__parameters__, parameters))
+
+        class Proxy:
+            def __getattribute__(self, attr):
+                if attr == "is_class_getitem_proxy":
+                    return True
+                return object_getattribute(result, attr)
+
+            def __str__(self):
+                return result.__str__()
+
+            def __repr__(self):
+                return result.__repr__()
+
+            def __call__(self, *args, **kwds):
+                p = parameters_get()
+                p.append(parameters)
+                try:
+                    return result(*args, **kwds)
+                finally:
+                    p.pop()
+
+        return Proxy()
 
     def validate_any(value, T, /):
         return value
 
+    def validate_none(value, T, /):
+        if value is not None:
+            raise ValidationError(value, T, [ValueError(f"value is not a None")])
+
+    def validate_bool(value, T, /):
+        if value in true_map:
+            return True
+        if value in false_map:
+            return False
+        raise ValueError(f"could not convert value to bool")
+
+    def validate_int(value, T, /):
+        return PyNumber_Long(value)
+
+    def validate_float(value, T, /):
+        return PyNumber_Float(value)
+
+    def validate_str(value, T, /):
+        return f"{value}"
+
     def validate_type(value, T, /):
-        if (origin := getattr(T, "__origin__", None)) is None:
+        if (origin := getattr(T, "__origin__", T)) == T:
             if isinstance(value, T):
                 return value
-            origin = T
-        if hasattr(origin, "__cwtch_model__"):
-            cache = cache_get()
-            cache_key = (T, id(value))
-            if (cache_value := cache.get(cache_key)) is not None:
-                return cache_value if cache["reset_circular_refs"] is False else _UNSET
-            try:
-                if isinstance(value, dict):
-                    if getattr(T, "is_proxy", None) is True:
-                        return T(_cwtch_cache_key=cache_key, **value)
-                    return origin(_cwtch_cache_key=cache_key, **value)
-                if isinstance(value, origin) and getattr(T, "is_proxy", None) is not True:
-                    return value
-                kwds = {a.name: getattr(value, a.name) for a in origin.__attrs_attrs__}
-                if getattr(T, "is_proxy", None) is True:
-                    return T(_cwtch_cache_key=cache_key, **kwds)
-                return origin(_cwtch_cache_key=cache_key, **kwds)
-            finally:
-                cache.pop(cache_key, None)
-        if hasattr(origin, "__attrs_attrs__"):
+        if is_dataclass(origin):
+            if getattr(origin, "__cwtch_handle_circular_refs__", None):
+                cache = cache_get()
+                cache_key = (T, id(value))
+                if (cache_value := cache.get(cache_key)) is not None:
+                    return cache_value if cache["reset_circular_refs"] is False else _UNSET
             if isinstance(value, dict):
-                return origin(**value)
-            if isinstance(value, origin):
-                return value
-            kwds = {a.name: getattr(value, a.name) for a in origin.__attrs_attrs__}
-            return origin(**kwds)
-        if is_dataclass(origin) and isinstance(value, dict):
-            return PyObject_Call(origin, (), value)
+                if getattr(T, "is_class_getitem_proxy", None) is True:
+                    return PyObject_Call(T, (), value)
+                return PyObject_Call(origin, (), value)
+            kwds = {f_name: getattr(value, f_name) for f_name in origin.__dataclass_fields__}
+            return PyObject_Call(origin, (), kwds)
         if T == UnsetType and value != UNSET:
             raise ValueError(f"value is not a valid {T}")
         if T == NoneType and value is not None:
             raise ValueError("value is not a None")
         return origin(value)
-
-    def validate_bool(value, T, /):
-        if PyNumber_Check(value) == 1:
-            if value == 1:
-                return True
-            if value == 0:
-                return False
-        if PyUnicode_Check(value):
-            if value in true_map:
-                return True
-            if value in false_map:
-                return False
-        raise ValueError(f"invalid value for {T}")
 
     def validate_list(value, T, /):
         if isinstance(value, list):
@@ -353,6 +243,7 @@ def make():
                             else:
                                 path = [i]
                             raise ValidationError(value, T, [e], path=path)
+                        raise e
 
                 if T_args[-1] != Ellipsis:
                     raise ValueError(f"invalid arguments count for {T}")
@@ -385,6 +276,8 @@ def make():
                         else:
                             path = [i]
                         raise ValidationError(value, T, [e], path=path)
+                    raise e
+
             return value
 
         if not isinstance(value, (list, set)):
@@ -412,6 +305,7 @@ def make():
                         else:
                             path = [i]
                         raise ValidationError(value, T, [e], path=path)
+                    raise e
 
             if T_args[-1] != Ellipsis:
                 raise ValueError(f"invalid arguments count for {T}")
@@ -444,10 +338,80 @@ def make():
                     else:
                         path = [i]
                     raise ValidationError(value, T, [e], path=path)
+                raise e
 
         return tuple(x for x in value)
 
-    validate_set = validate_list
+    def validate_set(value, T, /):
+        if isinstance(value, set):
+            if (args := getattr(T, "__args__", None)) is not None:
+                try:
+                    T_arg = args[0]
+                    if T_arg == int:
+                        return set(x if isinstance(x, int) else PyNumber_Long(x) for x in value)
+                    if T_arg == str:
+                        return set(x if isinstance(x, str) else f"{x}" for x in value)
+                    if T_arg == float:
+                        return set(x if isinstance(x, float) else PyNumber_Float(x) for x in value)
+                    validator = get_validator(T_arg)
+                    if validator == validate_type:
+                        origin = getattr(T_arg, "__origin__", T_arg)
+                        return set(x if isinstance(x, origin) else validator(x, T_arg) for x in value)
+                    if validator == validate_any:
+                        return value
+                    return set(validator(x, T_arg) for x in value)
+                except (TypeError, ValueError, ValidationError) as e:
+                    i: cython.int = 0
+                    validator = get_validator(T_arg)
+                    try:
+                        for x in value:
+                            validator(x, T_arg)
+                            i += 1
+                    except (TypeError, ValueError, ValidationError) as e:
+                        if isinstance(e, ValidationError) and e.path:
+                            path = [i] + e.path
+                        else:
+                            path = [i]
+                        raise ValidationError(value, T, [e], path=path)
+                    raise e
+
+            return value
+
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"invalid value for {T}")
+
+        if args := getattr(T, "__args__", None):
+            try:
+                T_arg = args[0]
+                if T_arg == int:
+                    return set(x if isinstance(x, int) else PyNumber_Long(x) for x in value)
+                if T_arg == str:
+                    return set(x if isinstance(x, str) else f"{x}" for x in value)
+                if T_arg == float:
+                    return set(x if isinstance(x, float) else PyNumber_Float(x) for x in value)
+                validator = get_validator(T_arg)
+                if validator == validate_type:
+                    origin = getattr(T_arg, "__origin__", T_arg)
+                    return set(x if isinstance(x, origin) else validator(x, T_arg) for x in value)
+                if validator == validate_any:
+                    return set(x for x in value)
+                return set(validator(x, T_arg) for x in value)
+            except (TypeError, ValueError, ValidationError) as e:
+                i: cython.int = 0
+                validator = get_validator(T_arg)
+                try:
+                    for x in value:
+                        validator(x, T_arg)
+                        i += 1
+                except (TypeError, ValueError, ValidationError) as e:
+                    if isinstance(e, ValidationError) and e.path:
+                        path = [i] + e.path
+                    else:
+                        path = [i]
+                    raise ValidationError(value, T, [e], path=path)
+                raise e
+
+        return set(x for x in value)
 
     def validate_dict(value, T, /):
         if not isinstance(value, dict):
@@ -458,7 +422,8 @@ def make():
             try:
                 if T_k == str:
                     return {
-                        k if isinstance(k, str) else f"{k}": v if isinstance(v, T_v) else validator_v(v, T_v)
+                        # k if isinstance(k, str) else f"{k}": v if isinstance(v, T_v) else validator_v(v, T_v)
+                        f"{k}": v if isinstance(v, T_v) else validator_v(v, T_v)
                         for k, v in value.items()
                     }
                 validator_k = get_validator(getattr(T_k, "__origin__", T_k))
@@ -478,6 +443,7 @@ def make():
                         else:
                             path = [k]
                         raise ValidationError(value, T, [e], path=path)
+                    raise e
         return value
 
     def validate_mapping(value, T, /):
@@ -509,19 +475,11 @@ def make():
                         else:
                             path = [k]
                         raise ValidationError(value, T, [e], path=path)
+                    raise e
         return value
 
     def validate_generic_alias(value, T, /):
         return get_validator(T.__origin__)(value, T)
-
-    def validate_int(value, T, /):
-        return PyNumber_Long(value)
-
-    def validate_float(value, T, /):
-        return PyNumber_Float(value)
-
-    def validate_str(value, T, /):
-        return f"{value}"
 
     def validate_callable(value, T, /):
         if not callable(value):
@@ -580,12 +538,9 @@ def make():
             return date_fromisoformat(value)
         return default_validator(value, T)
 
-    def validate_none(value, T, /):
-        if value is not None:
-            raise ValidationError(value, T, [ValueError("value is not a None")])
-
     def validate_typevar(value, T, /):
-        T_arg = cache_get()["parameters"][T]
+        parameters = parameters_get()[-1]
+        T_arg = parameters[T]
         return get_validator(T_arg)(value, T_arg)
 
     def default_validator(value, T, /):
@@ -630,15 +585,36 @@ def make():
     def get_validator(T, /):
         return validators_map_get(T) or validators_map_get(T.__class__) or default_validator
 
+    def validate_value_using_validator(value, T, validator):
+        try:
+            return validator(value, T)
+        except ValidationError as e:
+            parameters = parameters_get()
+            if parameters:
+                e.parameters = parameters[-1]
+            raise e
+        except (TypeError, ValueError) as e:
+            parameters = parameters_get()
+            if parameters:
+                parameters = parameters[-1]
+            else:
+                parameters = None
+            raise ValidationError(value, T, [e], parameters=parameters)
+
     def validate_value(value, T):
         try:
             return get_validator(T)(value, T)
         except ValidationError as e:
-            if parameters := cache_get().get("parameters"):
-                e.parameters = parameters
+            parameters = parameters_get()
+            if parameters:
+                e.parameters = parameters[-1]
             raise e
         except (TypeError, ValueError) as e:
-            parameters = cache_get().get("parameters")
+            parameters = parameters_get()
+            if parameters:
+                parameters = parameters[-1]
+            else:
+                parameters = None
             raise ValidationError(value, T, [e], parameters=parameters)
 
     def make_json_schema(
@@ -752,7 +728,14 @@ def make():
             return hook(T, ref_builder=ref_builder, hook=hook)
         raise Exception(f"missing json schema builder for {T}")
 
-    def make_json_schema_attrs(T, ref_builder=None, hook=None):
+    def make_json_schema_type(T, ref_builder=None, hook=None):
+        origin = getattr(T, "__origin__", T)
+        if is_dataclass(origin):
+            return make_json_schema_dataclass(T, ref_builder=ref_builder, hook=hook)
+        raise Exception(f"missing json schema builder for {T}")
+
+
+    def make_json_schema_dataclass(T, ref_builder=None, hook=None):
         schema = {"type": "object"}
         refs = {}
         properties = {}
@@ -762,18 +745,18 @@ def make():
             type_parameters = dict(zip(origin.__parameters__, T.__args__))
         else:
             type_parameters = {}
-        for a in origin.__attrs_attrs__:
-            tp = a.type
+        for f in origin.__dataclass_fields__.values():
+            tp = f.type
             if type_parameters:
-                if hasattr(a.type, "__typing_subst__"):
-                    tp = type_parameters[a.type]
-                elif hasattr(a.type, "__parameters__"):
-                    tp = a.type.__class_getitem__(*[type_parameters[tp] for tp in a.type.__parameters__])
-            a_schema, a_refs = make_json_schema(tp, ref_builder=ref_builder, hook=hook)
-            properties[a.name] = a_schema
-            refs.update(a_refs)
-            if a.default == NOTHING:
-                required.append(a.name)
+                if hasattr(f.type, "__typing_subst__"):
+                    tp = type_parameters[f.type]
+                elif hasattr(f.type, "__parameters__"):
+                    tp = f.type.__class_getitem__(*[type_parameters[tp] for tp in f.type.__parameters__])
+            f_schema, f_refs = make_json_schema(tp, ref_builder=ref_builder, hook=hook)
+            properties[f.name] = f_schema
+            refs.update(f_refs)
+            if f.default == MISSING:
+                required.append(f.name)
         if properties:
             schema["properties"] = properties
         if required:
@@ -794,8 +777,9 @@ def make():
     json_schema_builders_map[float] = make_json_schema_float
     json_schema_builders_map[str] = make_json_schema_str
     json_schema_builders_map[bool] = make_json_schema_bool
-    json_schema_builders_map[Metaclass] = make_json_schema_attrs
-    json_schema_builders_map[ViewMetaclass] = make_json_schema_attrs
+    json_schema_builders_map[type] = make_json_schema_type
+    json_schema_builders_map[Metaclass] = make_json_schema_dataclass
+    json_schema_builders_map[ViewMetaclass] = make_json_schema_dataclass
     json_schema_builders_map[list] = make_json_schema_list
     json_schema_builders_map[tuple] = make_json_schema_tuple
     json_schema_builders_map[set] = make_json_schema_set
@@ -817,9 +801,11 @@ def make():
         return json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
 
     return (
+        class_getitem,
         validators_map,
         get_validator,
         validate_value,
+        validate_value_using_validator,
         json_schema_builders_map,
         get_json_schema_builder,
         make_json_schema,
@@ -827,9 +813,11 @@ def make():
 
 
 (
+    _class_getitem,
     _validators_map,
     get_validator,
     validate_value,
+    validate_value_using_validator,
     _json_schema_builders_map,
     get_json_schema_builder,
     make_json_schema,
@@ -837,50 +825,17 @@ def make():
 
 
 def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, **kwds):
-    kwds.setdefault("metadata", {})["extra"] = {}
-
-    if env_var:
-        kwds["metadata"]["env_var"] = env_var
+    metadata = {}
 
     if validate:
-        _setattr = object.__setattr__
-        _UNSET = UNSET
-        _validate_value = validate_value
+        metadata["validate"] = True
 
-        if original_validators := kwds.get("validator", []):
-            kwds["metadata"]["validator"] = original_validators
-            if not isinstance(original_validators, list):
-                original_validators = [original_validators]
+    if env_var:
+        metadata["env_var"] = env_var
 
-            def validator(self, attribute, value):
-                try:
-                    if value == _UNSET:
-                        validated_value = value
-                    else:
-                        validated_value = _validate_value(value, attribute.type)
-                    if validated_value != value:
-                        _setattr(self, attribute.name, validated_value)
-                    for validator in original_validators:
-                        validator(self, attribute, validated_value)
-                except (TypeError, ValueError, ValidationError) as e:
-                    raise ValidationError(value, self.__class__, [e], path=[attribute.name])
+    kwds.setdefault("metadata", {})["cwtch"] = metadata
 
-        else:
-
-            def validator(self, attribute, value):
-                try:
-                    if value == _UNSET:
-                        validated_value = value
-                    else:
-                        validated_value = _validate_value(value, attribute.type)
-                    if validated_value != value:
-                        _setattr(self, attribute.name, validated_value)
-                except (TypeError, ValueError, ValidationError) as e:
-                    raise ValidationError(value, self.__class__, [e], path=[attribute.name])
-
-        kwds["validator"] = validator
-
-    return attrs_field(*args, **kwds)
+    return dataclasses_field(*args, **kwds)
 
 
 def register_validator(T, validator, force: bool | None = None):
@@ -897,10 +852,12 @@ def register_json_schema_builder(T, builder, force: bool | None = None):
     get_json_schema_builder.cache_clear()
 
 
-def _asdict(inst, **kwds):
+def _asdict(inst, root: bool, **kwds):
     show_secrets = kwds.get("show_secrets", None)
 
-    if not hasattr(inst, "__attrs_attrs__"):
+    if not getattr(inst, "__cwtch_model__", None) is True and not getattr(inst, "__cwtch_view__", None) is True:
+        if root:
+            raise Exception("not a cwtch model")
         if show_secrets and hasattr(v, "get_secret_value"):
             return inst.get_secret_value()
         return inst
@@ -920,18 +877,19 @@ def _asdict(inst, **kwds):
     if hasattr(inst, "to_dict"):
         items = inst.to_dict().items()
     else:
-        items = ((a.name, getattr(inst, a.name)) for a in inst.__attrs_attrs__)
+        items = ((f.name, getattr(inst, f.name)) for f in dataclasses_fields(inst))
     data = {}
     for k, v in items:
         if all(condition(k, v) for condition in conditions):
             if isinstance(v, list):
-                data[k] = [_asdict(x, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v]
+                data[k] = [_asdict(x, False, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v]
             elif isinstance(v, tuple):
-                data[k] = tuple(_asdict(x, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v)
+                data[k] = tuple(_asdict(x, False, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v)
             elif isinstance(v, dict):
                 data[k] = {
-                    kk: _asdict(vv, exclude_unset=exclude_unset, show_secrets=show_secrets) for kk, vv in v.items()
+                    kk: _asdict(vv, False, exclude_unset=exclude_unset, show_secrets=show_secrets)
+                    for kk, vv in v.items()
                 }
             else:
-                data[k] = _asdict(v, exclude_unset=exclude_unset)
+                data[k] = _asdict(v, False, exclude_unset=exclude_unset)
     return data

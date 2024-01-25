@@ -11,6 +11,12 @@ class UnsetType:
     def __deepcopy__(self, *args, **kwds):
         return self
 
+    def __str__(self):
+        return "UNSET"
+
+    def __repr__(self):
+        return "UNSET"
+
 
 UNSET = UnsetType()
 

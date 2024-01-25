@@ -1,6 +1,5 @@
+import dataclasses
 import re
-from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from json import loads as json_loads
 from typing import Any
 
@@ -21,7 +20,7 @@ class TypeMetadata:
         pass
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Ge(TypeMetadata):
     value: Any
 
@@ -33,7 +32,7 @@ class Ge(TypeMetadata):
             raise ValueError(f"value should be >= {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Gt(TypeMetadata):
     value: Any
 
@@ -45,7 +44,7 @@ class Gt(TypeMetadata):
             raise ValueError(f"value should be > {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Le(TypeMetadata):
     value: Any
 
@@ -57,7 +56,7 @@ class Le(TypeMetadata):
             raise ValueError(f"value should be <= {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Lt(TypeMetadata):
     value: Any
 
@@ -69,7 +68,7 @@ class Lt(TypeMetadata):
             raise ValueError(f"value should be < {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class MinLen(TypeMetadata):
     value: int
 
@@ -81,7 +80,7 @@ class MinLen(TypeMetadata):
             raise ValueError(f"value length should be >= {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class MaxLen(TypeMetadata):
     value: int
 
@@ -93,7 +92,7 @@ class MaxLen(TypeMetadata):
             raise ValueError(f"value length should be <= {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class MinItems(TypeMetadata):
     value: int
 
@@ -105,7 +104,7 @@ class MinItems(TypeMetadata):
             raise ValueError(f"items count should be >= {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class MaxItems(TypeMetadata):
     value: int
 
@@ -117,7 +116,7 @@ class MaxItems(TypeMetadata):
             raise ValueError(f"items count should be <= {self.value}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Match(TypeMetadata):
     pattern: re.Pattern
 
@@ -129,10 +128,10 @@ class Match(TypeMetadata):
             raise ValueError(f"value doesn't match pattern {self.pattern}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class UrlConstraints(TypeMetadata):
-    schemes: list[str] | None = dataclass_field(default=None)
-    ports: list[int] | None = dataclass_field(default=None)
+    schemes: list[str] | None = dataclasses.field(default=None)
+    ports: list[int] | None = dataclasses.field(default=None)
 
     def validate_after(self, value, /):
         if self.schemes is not None and value.scheme not in self.schemes:
@@ -144,7 +143,7 @@ class UrlConstraints(TypeMetadata):
         return hash(f"{sorted(self.schemes or [])}{sorted(self.ports or [])}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class JsonValue(TypeMetadata):
     def convert(self, value, /):
         return json_loads(value)
