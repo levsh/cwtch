@@ -591,6 +591,24 @@ def test_view_recursive():
     assert B.V.__annotations__["a"] == list[A.V] | None
 
 
+def test_model_post_init():
+    @dataclass
+    class A:
+        x: int
+        s: str | None = None
+
+    @dataclass
+    class B(A):
+        x: float
+
+        def __post_init__(self):
+            super().__init__(x=self.x, s="s")
+
+    b = B(x=1.1)
+    assert b.x == 1.1
+    assert b.s == "s"
+
+
 def test_validate_call():
     def foo(s: str, i: int = None):
         pass

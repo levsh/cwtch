@@ -55,7 +55,10 @@ class SecretUrl(SecretStr):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self._parsed = urlparse(self._value)
+        try:
+            self._parsed = urlparse(self._value)
+        except Exception as e:
+            raise ValueError(e)
 
     def __str__(self):
         return f"{self.__class__.__name__}({self._parsed.scheme}://***@{self.netloc})"

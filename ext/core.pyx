@@ -829,6 +829,8 @@ def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, 
 
     if validate:
         metadata["validate"] = True
+    else:
+        metadata["validate"] = False
 
     if env_var:
         metadata["env_var"] = env_var

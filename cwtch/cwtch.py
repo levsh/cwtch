@@ -88,6 +88,9 @@ def _build(
     handle_circular_refs: bool,
     **kwds,
 ):
+    if kwds.get("kw_only") is False:
+        raise Exception("only keyword arguments are supported")
+
     kwds["kw_only"] = True
 
     def create_fn(cls, name, args, body, *, globals=None, locals=None):
@@ -103,7 +106,6 @@ def _build(
                 f"{body}",
             ]
         )
-
         local_vars = ", ".join(locals.keys())
         text = f"def __create_fn__({local_vars}):\n{text}\n    return {name}"
         ns = {}
@@ -113,35 +115,47 @@ def _build(
         return ns["__create_fn__"](**locals)
 
     def create_init(cls, fields, validate, ignore_extra):
-        __dataclass_init__ = getattr(cls, "__dataclass_init__", cls.__init__)
+        __dataclass_init__ = cls.__dict__.get("__dataclass_init__", cls.__init__)
 
         sorted_fields = sorted(
             fields.keys(),
             key=lambda name: not (fields[name].default is MISSING and fields[name].default_factory is MISSING),
         )
 
-        super_fields = []
+        super_fields = {}
         if cls.__base__ != object:
             for item in cls.__mro__[1::-1][:-1]:
-                for f_name in getattr(item, "__annotations__", {}):
-                    super_fields.append(f_name)
+                for f_name, f_type in getattr(item, "__annotations__", {}).items():
+                    if f_name not in cls.__annotations__:
+                        super_fields[f_name] = f_type
 
         globals = {}
         locals = {
-            "cache_get": _cache.get,
+            "_cache_get": _cache.get,
             "MISSING": MISSING,
             "ValidationError": ValidationError,
             "validate": validate_value_using_validator,
-            "__dataclass_init__": __dataclass_init__,
             "env_prefixes": env_prefixes,
             "env_source": env_source,
+            "__dataclass_init__": __dataclass_init__,
         }
 
         args = ["__cwtch_self__"]
         if handle_circular_refs:
             args.append("_cwtch_cache_key=None")
 
+        if super_fields or fields:
+            args += ["*"]
+
         body = []
+
+        body += [
+            "if hasattr(__cwtch_self__, '__cwtch_in_post_init__'):",
+        ]
+        if __dataclass_init__:
+            x = ", ".join(f"{f_name}={f_name}" for f_name in fields)
+            body += [f"    __dataclass_init__(__cwtch_self__, {x})"]
+        body += [f"    return"]
 
         if env_prefixes:
             body += [
@@ -164,15 +178,12 @@ def _build(
             if handle_circular_refs:
                 body += [
                     "if _cwtch_cache_key is not None:",
-                    "   cache_get()[_cwtch_cache_key] = __cwtch_self__",
+                    "   _cache_get()[_cwtch_cache_key] = __cwtch_self__",
                     "try:",
                 ]
                 indent = " " * 4
 
-            args += ["*"]
             for f_name in sorted_fields:
-                if f_name in super_fields:
-                    continue
                 field = fields[f_name]
                 locals[f"field_{f_name}"] = field
                 locals[f"type_{f_name}"] = field.type
@@ -258,11 +269,12 @@ def _build(
             if handle_circular_refs:
                 body += [
                     "finally:",
-                    "    cache_get().pop(_cwtch_cache_key, None)",
+                    "    _cache_get().pop(_cwtch_cache_key, None)",
                 ]
 
-            x = ", ".join(f"{f_name}={f_name}" for f_name in fields)
-            body += [f"__dataclass_init__(__cwtch_self__, {x})"]
+            if __dataclass_init__:
+                x = ", ".join(f"{f_name}={f_name}" for f_name in fields)
+                body += [f"__dataclass_init__(__cwtch_self__, {x})"]
 
         else:
             body = ["pass"]
@@ -292,6 +304,24 @@ def _build(
         return _class_getitem(cls, parameters, result)
 
     setattr(cls, "__class_getitem__", classmethod(__class_getitem__))
+
+    if hasattr(cls, "__post_init__"):
+        __dataclass_post_init__ = cls.__post_init__
+
+        def __post_init__(self):
+            self.__cwtch_in_post_init__ = True
+            try:
+                __dataclass_post_init__(self)
+            except ValueError as e:
+                raise ValidationError(self, __class__, [e], path=["__post_init__"])
+            finally:
+                if hasattr(cls, "__cwtch_in_post_init__"):
+                    delattr(self, "__cwtch_in_post_init__")
+
+        __post_init__.__module__ = __dataclass_post_init__.__module__
+        __post_init__.__qualname__ = __dataclass_post_init__.__qualname__
+
+        setattr(cls, "__post_init__", __post_init__)
 
     def update_forward_refs(localns, globalns):
         resolve_types(cls, globalns=globalns, localns=localns)
