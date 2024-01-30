@@ -348,17 +348,20 @@ def _build(
 
     fields = dataclasses.fields(cls)
 
-    def update_type(tp):
+    def update_type(tp, view_names: list[str]):
         if getattr(tp, "__origin__", None) is not None:
             return tp.__class__(
-                update_type(getattr(tp, "__origin__", tp)),
-                tp.__metadata__ if hasattr(tp, "__metadata__") else tuple(update_type(arg) for arg in tp.__args__),
+                update_type(getattr(tp, "__origin__", tp), view_names),
+                tp.__metadata__
+                if hasattr(tp, "__metadata__")
+                else tuple(update_type(arg, view_names) for arg in tp.__args__),
             )
         if isinstance(tp, UnionType):
-            return Union[*(update_type(arg) for arg in tp.__args__)]
+            return Union[*(update_type(arg, view_names) for arg in tp.__args__)]
         if getattr(tp, "__cwtch_model__", None):
-            if hasattr(tp, view_name):
-                return getattr(tp, view_name)
+            for view_name in view_names:
+                if hasattr(tp, view_name):
+                    return getattr(tp, view_name)
         return tp
 
     namespace = {}
@@ -431,10 +434,11 @@ def _build(
         }
 
         if recursive is not False:
+            view_names = recursive if isinstance(recursive, list) else [view_name]
             for k, v in view_fields.items():
-                view_annotations[k] = v.type = update_type(v.type)
+                view_annotations[k] = v.type = update_type(v.type, view_names)
                 if v.default_factory:
-                    v.default_factory = update_type(v.default_factory)
+                    v.default_factory = update_type(v.default_factory, view_names)
 
         view_kwds = {"init": True, "kw_only": True}
 
@@ -509,7 +513,7 @@ def view(
     exclude: set[str] | None = None,
     validate: bool | None = None,
     ignore_extra: bool | None = None,
-    recursive: bool | None = None,
+    recursive: bool | list[str] | None = None,
 ):
     """
     Decorator for creating view of root Cwtch model.
@@ -519,7 +523,7 @@ def view(
       exclude: set of field names to exclude from root model.
       validate: if False skip validation(default True).
       ignore_extra: ignore extra arguments passed to init(default False).
-      recursive: ...
+      recursive: ... default(True).
     """
 
     if (include or set()) & (exclude or set()):
