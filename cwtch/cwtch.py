@@ -330,11 +330,11 @@ def _build(
 
         setattr(cls, "__post_init__", __post_init__)
 
-    def update_forward_refs(localns, globalns):
+    def cwtch_update_forward_refs(localns, globalns):
         resolve_types(cls, globalns=globalns, localns=localns)
         _build(cls, env_prefixes, env_source, validate, ignore_extra, handle_circular_refs, **kwds)
 
-    setattr(cls, "update_forward_refs", staticmethod(update_forward_refs))
+    setattr(cls, "cwtch_update_forward_refs", staticmethod(cwtch_update_forward_refs))
 
     def cwtch_rebuild():
         _build(cls, env_prefixes, env_source, validate, ignore_extra, handle_circular_refs, **kwds)
