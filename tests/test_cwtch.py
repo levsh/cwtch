@@ -404,7 +404,7 @@ def test_forward_ref():
     class B:
         i: int
 
-    A.update_forward_refs(globals(), locals())
+    A.cwtch_update_forward_refs(globals(), locals())
 
     a = validate_value({"a1": {"i": 1}, "a2": {"i": 2}}, A)
     assert a.a1.i == 1
