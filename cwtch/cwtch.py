@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import typing
 from copy import deepcopy
 from dataclasses import _MISSING_TYPE, MISSING, Field
@@ -131,12 +132,15 @@ def _build(
 
         globals = {}
         locals = {
+            "dataclasses_fields": dataclasses.fields,
             "_cache_get": _cache.get,
             "MISSING": MISSING,
             "ValidationError": ValidationError,
             "validate": validate_value_using_validator,
             "env_prefixes": env_prefixes,
             "env_source": env_source,
+            "json_loads": json.loads,
+            "JSONDecodeError": json.JSONDecodeError,
             "__dataclass_init__": __dataclass_init__,
         }
 
@@ -161,7 +165,7 @@ def _build(
             body += [
                 "env_source_data = env_source()",
                 "env_data = {}",
-                "for f in __cwtch_self__.__dataclass_fields__.values():",
+                "for f in dataclasses_fields(__cwtch_self__):",
                 "   if env_var := f.metadata['cwtch'].get('env_var'):",
                 "       for env_prefix in env_prefixes:",
                 "           if isinstance(env_var, str):",
@@ -169,7 +173,10 @@ def _build(
                 "           else:",
                 "               key = f'{env_prefix}{f.name}'.upper()",
                 "           if key in env_source_data:",
-                "               env_data[f.name] = env_source_data[key]",
+                "               try:",
+                "                   env_data[f.name] = json_loads(env_source_data[key])",
+                "               except JSONDecodeError:",
+                "                   env_data[f.name] = env_source_data[key]",
                 "               break",
             ]
 
@@ -472,6 +479,8 @@ def dataclass(
         env_prefixes = None
         if env_prefix and not isinstance(env_prefix, list):
             env_prefixes = [env_prefix]
+        else:
+            env_prefixes = env_prefix
         cls = _build(
             cls,
             env_prefixes,
@@ -559,9 +568,9 @@ def from_attributes(
     """
 
     kwds = {
-        k: getattr(obj, f"{k}{suffix}" if suffix else k)
-        for k in cls.__dataclass_fields__
-        if (not exclude or k not in exclude) and hasattr(obj, f"{k}{suffix}" if suffix else k)
+        f.name: getattr(obj, f"{f.name}{suffix}" if suffix else f.name)
+        for f in dataclasses.fields(cls)
+        if (not exclude or f.name not in exclude) and hasattr(obj, f"{f.name}{suffix}" if suffix else f.name)
     }
     if data:
         kwds.update(data)

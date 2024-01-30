@@ -111,14 +111,14 @@ def make():
 
     def validate_none(value, T, /):
         if value is not None:
-            raise ValidationError(value, T, [ValueError(f"value is not a None")])
+            raise ValidationError(value, T, [ValueError("value is not a None")])
 
     def validate_bool(value, T, /):
         if value in true_map:
             return True
         if value in false_map:
             return False
-        raise ValueError(f"could not convert value to bool")
+        raise ValueError("could not convert value to bool")
 
     def validate_int(value, T, /):
         return PyNumber_Long(value)
@@ -145,10 +145,19 @@ def make():
                 return PyObject_Call(origin, (), value)
             kwds = {f_name: getattr(value, f_name) for f_name in origin.__dataclass_fields__}
             return PyObject_Call(origin, (), kwds)
-        if T == UnsetType and value != UNSET:
-            raise ValueError(f"value is not a valid {T}")
-        if T == NoneType and value is not None:
-            raise ValueError("value is not a None")
+        if T == UnsetType:
+            if value != UNSET:
+                raise ValueError(f"value is not a valid {T}")
+            return value
+        if T == NoneType:
+            if value is not None:
+                raise ValueError("value is not a None")
+            return value
+        if origin == type:
+            arg = T.__args__[0]
+            if hasattr(arg, "__base__") and issubclass(value, T.__args__[0]):
+                return value
+            raise ValueError(f"invalid value for {T}")
         return origin(value)
 
     def validate_list(value, T, /):
@@ -734,7 +743,6 @@ def make():
             return make_json_schema_dataclass(T, ref_builder=ref_builder, hook=hook)
         raise Exception(f"missing json schema builder for {T}")
 
-
     def make_json_schema_dataclass(T, ref_builder=None, hook=None):
         schema = {"type": "object"}
         refs = {}
@@ -824,15 +832,13 @@ def make():
 ) = make()
 
 
-def field(*args, validate: bool = True, env_var: bool | str | list[str] = None, **kwds):
+def field(*args, validate: bool | None = None, env_var: bool | str | list[str] = None, **kwds):
     metadata = {}
 
-    if validate:
-        metadata["validate"] = True
-    else:
-        metadata["validate"] = False
+    if validate is not None:
+        metadata["validate"] = validate
 
-    if env_var:
+    if env_var is not None:
         metadata["env_var"] = env_var
 
     kwds.setdefault("metadata", {})["cwtch"] = metadata

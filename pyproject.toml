@@ -19,7 +19,6 @@ include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11, <4.0"
-attrs = ">=22.0.0"
 
 [tool.poetry.group.test.dependencies]
 cattrs = "*"
@@ -28,7 +27,7 @@ invoke = "*"
 msgspec = "*"
 pydantic = "^2"
 pylint = "*"
-pytest = "*"
+pytest = "==7.4.4"
 pytest-benchmark = "*"
 pytest-cov = "*"
 psutil = "*"

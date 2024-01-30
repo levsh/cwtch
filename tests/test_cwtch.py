@@ -3,7 +3,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from enum import Enum
-from typing import Annotated, Any, ForwardRef, Generic, Literal, TypeVar
+from typing import Annotated, Any, ForwardRef, Generic, Literal, Type, TypeVar
 from unittest import mock
 
 import pytest
@@ -299,6 +299,30 @@ def test_validate_abcmeta():
     assert validate_value([1], Iterable[int]) == [1]
     assert validate_value([1], Sequence) == [1]
     assert validate_value([1], Sequence[int]) == [1]
+
+
+def test_validate_type():
+    class A:
+        pass
+
+    class B(A):
+        pass
+
+    class C:
+        pass
+
+    assert validate_value(A, Type[A]) == A
+    assert validate_value(B, Type[A]) == B
+    with pytest.raises(
+        ValidationError,
+        match=re.escape(
+            (
+                "validation error for typing.Type[test_cwtch.test_validate_type.<locals>.A]\n"
+                "  - invalid value for typing.Type[test_cwtch.test_validate_type.<locals>.A]"
+            )
+        ),
+    ):
+        validate_value(C, Type[A])
 
 
 def test_validate_model_simple():
