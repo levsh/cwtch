@@ -477,6 +477,8 @@ def dataclass(
       env_prefix: prefix(or list of prefixes) for environment variables.
       env_source: environment variables source factory.
       ignore_extra: ignore extra arguments passed to init(default False).
+      handle_circular_refs: handle or not circular refs.
+      kwds: other dataclasses.dataclass arguments.
     """
 
     def wrapper(cls):
@@ -516,7 +518,7 @@ def view(
     recursive: bool | list[str] | None = None,
 ):
     """
-    Decorator for creating view of root Cwtch model.
+    Decorator to create view of root model.
 
     Args:
       include: set of field names to include from root model.

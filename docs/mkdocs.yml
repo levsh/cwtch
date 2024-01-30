@@ -1,0 +1,29 @@
+site_name: cwtch
+nav:
+  - About: index.md
+  - Installation: installation.md
+  - User Guide:
+    - Basic: user_guide/basic.md
+    - Validation: user_guide/validation.md
+    - Views: user_guide/views.md
+  - API Reference: api_reference.md
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: teal
+    accent: light blue
+  features:
+    - content.code.copy
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - tables
+  - admonition
+plugins:
+  - search
+  - mkdocstrings
+repo_url: https://github.com/levsh/cwtch
