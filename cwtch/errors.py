@@ -14,12 +14,20 @@ class ValidationError(Error):
         self.parameters = parameters
 
     def __str__(self):
-        errors = "\n".join(
-            [indent(f"- {e}" if not isinstance(e, ValidationError) else f"{e}", "  ") for e in self.errors]
-        )
-        parameters, path = "", ""
-        if self.parameters:
-            parameters = f" parameters={list(self.parameters.values())}"
-        if self.path:
-            path = f" path={self.path}"
-        return f"validation error for {self.type}{parameters}{path}\n{errors}"
+        try:
+            errors = "\n".join(
+                [indent(f"E: {e}" if not isinstance(e, ValidationError) else f"{e}", "  ") for e in self.errors]
+            )
+            tp = self.type
+            path = ""
+            if self.parameters:
+                origin = getattr(tp, "__origin__", tp)
+                if hasattr(origin, "__typing_subst__"):
+                    tp = origin.__typing_subst__(self.parameters[origin])
+                else:
+                    tp = origin[*self.parameters.values()]
+            if self.path:
+                path = f" path={self.path}"
+            return f"type=[{tp}]{path} input_type=[{type(self.value)}]\n{errors}"
+        except Exception as e:
+            return f"cwtch internal error: {e}\noriginal errors: {self.errors}"

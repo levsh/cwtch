@@ -21,7 +21,7 @@ include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 python = ">=3.11, <4.0"
 
 [tool.poetry.group.test.dependencies]
-cattrs = "*"
+attrs = "*"
 coverage = "*"
 invoke = "*"
 msgspec = "*"

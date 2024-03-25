@@ -68,7 +68,7 @@ To validate field value (`before` or `after` mode) use validators based on `cwtc
 together with Python `Annotated` feature.
 
 ```python
-from cwtch import TypeMetadata
+from cwtch.metadata import TypeMetadata
 
 class CustomValidator(TypeMetadata):
     def convert(self, value) -> Any:
@@ -100,7 +100,8 @@ class D:
 
 ```python
 from typing import Annotated
-from cwtch import Ge, Gt, Le, Lt, MaxItems, MaxLen, MinItems, MinLen, dataclass
+from cwtch import dataclass
+from cwtch.metadata import Ge, Gt, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
 
 @dataclass
 class D:

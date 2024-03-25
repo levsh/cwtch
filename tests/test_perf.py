@@ -1,7 +1,6 @@
 import time
 
 import attrs
-from cattrs import structure
 from msgspec import Struct, convert
 from pydantic import BaseModel
 
@@ -136,7 +135,8 @@ class M(Struct):
     sub2: list[MM]
 
 
-RANGE = 25
+RANGE = 50
+SUB_RANGE = 25
 
 sub_data = {
     "li1": list(range(RANGE)),
@@ -166,8 +166,8 @@ data = {
     "ti": tuple(range(RANGE)),
     "d": {},
     "dd": dict(zip(map(str, range(RANGE)), range(RANGE))),
-    "sub1": [sub_data for _ in range(10)],
-    "sub2": [sub_data for _ in range(10)],
+    "sub1": [sub_data for _ in range(SUB_RANGE)],
+    "sub2": [sub_data for _ in range(SUB_RANGE)],
 }
 
 
@@ -189,8 +189,3 @@ def test_perf_pydantic(benchmark):
 def test_perf_cwtch(benchmark):
     time.sleep(1)
     benchmark(lambda: [C(**data) for _ in range(1000)])
-
-
-# def test_perf_cattrs(benchmark):
-#     time.sleep(1)
-#     benchmark(lambda: [structure(data, A) for _ in range(1000)])

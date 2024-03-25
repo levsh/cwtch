@@ -3,13 +3,10 @@
 # distutils: language=c
 
 from contextvars import ContextVar
-from json import JSONDecodeError
 from uuid import UUID
 
 import cython
-from dataclasses import MISSING
 from dataclasses import field as dataclasses_field
-from dataclasses import fields as dataclasses_fields
 from enum import EnumType, Enum
 
 from .errors import ValidationError
@@ -49,7 +46,9 @@ class ViewMetaclass(type):
 def make():
     import functools
     from abc import ABCMeta
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Mapping
+    from dataclasses import MISSING
+    from dataclasses import fields as dataclasses_fields
     from dataclasses import is_dataclass
     from datetime import date, datetime
     from types import UnionType
@@ -68,15 +67,22 @@ def make():
         _UnionGenericAlias,
     )
 
+    from .types import UNSET
+
     cache_get = _cache.get
     true_map = (True, 1, "1", "true", "t", "y", "yes", "True", "TRUE", "Y", "Yes", "YES")
     false_map = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No", "NO")
     datetime_fromisoformat = datetime.fromisoformat
     date_fromisoformat = date.fromisoformat
-    _UNSET = UNSET
     NoneType = type(None)
     parameters_get = _parameters.get
     object_getattribute = object.__getattribute__
+
+    def get_current_parameters():
+        parameters = parameters_get()
+        if parameters:
+            return parameters[0]
+        return {}
 
     def class_getitem(cls, parameters, result):
         if not isinstance(parameters, tuple):
@@ -88,13 +94,18 @@ def make():
             def __getattribute__(self, attr):
                 if attr == "is_class_getitem_proxy":
                     return True
-                return object_getattribute(result, attr)
+                if attr == "_parameters":
+                    return parameters
+                return getattr(result, attr)
 
             def __str__(self):
                 return result.__str__()
 
             def __repr__(self):
                 return result.__repr__()
+
+            def xxx(self):
+                return result
 
             def __call__(self, *args, **kwds):
                 p = parameters_get()
@@ -129,21 +140,30 @@ def make():
     def validate_str(value, T, /):
         return f"{value}"
 
+    def validate_bytes(value, T, /):
+        if type(value) == bytes:
+            return value
+        if type(value) == str:
+            return value.encode()
+        return bytes(value)
+
     def validate_type(value, T, /):
         if (origin := getattr(T, "__origin__", T)) == T:
-            if isinstance(value, T):
+            if type(value) == origin:
                 return value
         if is_dataclass(origin):
             if getattr(origin, "__cwtch_handle_circular_refs__", None):
                 cache = cache_get()
                 cache_key = (T, id(value))
                 if (cache_value := cache.get(cache_key)) is not None:
-                    return cache_value if cache["reset_circular_refs"] is False else _UNSET
+                    return cache_value if cache["reset_circular_refs"] is False else UNSET
             if isinstance(value, dict):
                 if getattr(T, "is_class_getitem_proxy", None) is True:
                     return PyObject_Call(T, (), value)
                 return PyObject_Call(origin, (), value)
-            kwds = {f_name: getattr(value, f_name) for f_name in origin.__dataclass_fields__}
+            kwds = {f_name: getattr(value, f_name) for f_name in origin.__dataclass_fields__ if hasattr(value, f_name)}
+            if getattr(T, "is_class_getitem_proxy", None) is True:
+                return PyObject_Call(T, (), kwds)
             return PyObject_Call(origin, (), kwds)
         if T == UnsetType:
             if value != UNSET:
@@ -241,9 +261,9 @@ def make():
                         )
                     except (TypeError, ValueError, ValidationError) as e:
                         i: cython.int = 0
-                        validator = get_validator(T_arg)
                         try:
-                            for x in value:
+                            for x, T_arg in zip(value, T_args):
+                                validator = get_validator(T_arg)
                                 validator(x, T_arg)
                                 i += 1
                         except (TypeError, ValueError, ValidationError) as e:
@@ -303,9 +323,9 @@ def make():
                     )
                 except (TypeError, ValueError, ValidationError) as e:
                     i: cython.int = 0
-                    validator = get_validator(T_arg)
                     try:
-                        for x in value:
+                        for x, T_arg in zip(value, T_args):
+                            validator = get_validator(T_arg)
                             validator(x, T_arg)
                             i += 1
                     except (TypeError, ValueError, ValidationError) as e:
@@ -499,19 +519,15 @@ def make():
         __metadata__ = T.__metadata__
 
         for metadata in __metadata__:
-            if converter := getattr(metadata, "convert", None):
-                value = converter(value)
-
-        for metadata in __metadata__:
-            if validator := getattr(metadata, "validate_before", None):
-                validator(value)
+            if isinstance(metadata, TypeMetadata):
+                value = metadata.before(value)
 
         __origin__ = T.__origin__
         value = get_validator(__origin__)(value, __origin__)
 
         for metadata in __metadata__:
-            if validator := getattr(metadata, "validate_after", None):
-                validator(value)
+            if isinstance(metadata, TypeMetadata):
+                value = metadata.after(value)
 
         return value
 
@@ -524,7 +540,7 @@ def make():
             try:
                 return validate_value(value, T_arg)
             except ValidationError as e:
-                errors.extend(e.errors)
+                errors.append(e)
         raise ValidationError(value, T, errors)
 
     def validate_literal(value, T, /):
@@ -535,7 +551,7 @@ def make():
     def validate_abcmeta(value, T, /):
         if isinstance(value, getattr(T, "__origin__", T)):
             return value
-        raise ValidationError(value, T, [ValueError(f"value is not a instance of {T}")])
+        raise ValidationError(value, T, [ValueError(f"value is not a valid {T}")])
 
     def validate_datetime(value, T, /):
         if isinstance(value, str):
@@ -548,9 +564,11 @@ def make():
         return default_validator(value, T)
 
     def validate_typevar(value, T, /):
-        parameters = parameters_get()[-1]
-        T_arg = parameters[T]
-        return get_validator(T_arg)(value, T_arg)
+        parameters = parameters_get()
+        if parameters:
+            T_arg = parameters[-1][T]
+            return get_validator(T_arg)(value, T_arg)
+        return value
 
     def default_validator(value, T, /):
         if not hasattr(T, "__origin__") and isinstance(value, T):
@@ -567,6 +585,7 @@ def make():
     validators_map[int] = validate_int
     validators_map[float] = validate_float
     validators_map[str] = validate_str
+    validators_map[bytes] = validate_bytes
     validators_map[bool] = validate_bool
     validators_map[list] = validate_list
     validators_map[tuple] = validate_tuple
@@ -808,6 +827,49 @@ def make():
     def get_json_schema_builder(T, /):
         return json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
 
+    def asdict(inst, root: bool, **kwds):
+        show_secrets = kwds.get("show_secrets")
+
+        # if not getattr(inst, "__cwtch_model__", None) is True and not getattr(inst, "__cwtch_view__", None) is True:
+        if not is_dataclass(inst):
+            if root:
+                raise Exception("not a dataclass")
+            if show_secrets and hasattr(inst, "get_secret_value"):
+                return inst.get_secret_value()
+            return inst
+
+        include_ = kwds.get("include", None)
+        exclude_ = kwds.get("exclude", None)
+        exclude_unset = kwds.get("exclude_unset", None)
+
+        conditions = []
+        if include_ is not None:
+            conditions.append(lambda k, v: k in include_)
+        if exclude_ is not None:
+            conditions.append(lambda k, v: k not in exclude_)
+        if exclude_unset:
+            conditions.append(lambda k, v: v != UNSET)
+
+        if hasattr(inst, "to_dict"):
+            items = inst.to_dict().items()
+        else:
+            items = ((f.name, getattr(inst, f.name)) for f in dataclasses_fields(inst))
+        data = {}
+        for k, v in items:
+            if all(condition(k, v) for condition in conditions):
+                if isinstance(v, list):
+                    data[k] = [asdict(x, False, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v]
+                elif isinstance(v, tuple):
+                    data[k] = tuple(asdict(x, False, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v)
+                elif isinstance(v, dict):
+                    data[k] = {
+                        kk: asdict(vv, False, exclude_unset=exclude_unset, show_secrets=show_secrets)
+                        for kk, vv in v.items()
+                    }
+                else:
+                    data[k] = asdict(v, False, exclude_unset=exclude_unset, show_secrets=show_secrets)
+        return data
+
     return (
         class_getitem,
         validators_map,
@@ -817,6 +879,8 @@ def make():
         json_schema_builders_map,
         get_json_schema_builder,
         make_json_schema,
+        asdict,
+        get_current_parameters,
     )
 
 
@@ -825,10 +889,12 @@ def make():
     _validators_map,
     get_validator,
     validate_value,
-    validate_value_using_validator,
+    _validate_value_using_validator,
     _json_schema_builders_map,
     get_json_schema_builder,
     make_json_schema,
+    _asdict,
+    get_current_parameters,
 ) = make()
 
 
@@ -858,46 +924,3 @@ def register_json_schema_builder(T, builder, force: bool | None = None):
         raise Exception(f"json schema builder for '{T}' already registered")
     _json_schema_builders_map[T] = builder
     get_json_schema_builder.cache_clear()
-
-
-def _asdict(inst, root: bool, **kwds):
-    show_secrets = kwds.get("show_secrets", None)
-
-    if not getattr(inst, "__cwtch_model__", None) is True and not getattr(inst, "__cwtch_view__", None) is True:
-        if root:
-            raise Exception("not a cwtch model")
-        if show_secrets and hasattr(v, "get_secret_value"):
-            return inst.get_secret_value()
-        return inst
-
-    include_ = kwds.get("include", None)
-    exclude_ = kwds.get("exclude", None)
-    exclude_unset = kwds.get("exclude_unset", None)
-
-    conditions = []
-    if include_ is not None:
-        conditions.append(lambda k, v: k in include_)
-    if exclude_ is not None:
-        conditions.append(lambda k, v: k not in exclude_)
-    if exclude_unset:
-        conditions.append(lambda k, v: v != UNSET)
-
-    if hasattr(inst, "to_dict"):
-        items = inst.to_dict().items()
-    else:
-        items = ((f.name, getattr(inst, f.name)) for f in dataclasses_fields(inst))
-    data = {}
-    for k, v in items:
-        if all(condition(k, v) for condition in conditions):
-            if isinstance(v, list):
-                data[k] = [_asdict(x, False, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v]
-            elif isinstance(v, tuple):
-                data[k] = tuple(_asdict(x, False, exclude_unset=exclude_unset, show_secrets=show_secrets) for x in v)
-            elif isinstance(v, dict):
-                data[k] = {
-                    kk: _asdict(vv, False, exclude_unset=exclude_unset, show_secrets=show_secrets)
-                    for kk, vv in v.items()
-                }
-            else:
-                data[k] = _asdict(v, False, exclude_unset=exclude_unset)
-    return data

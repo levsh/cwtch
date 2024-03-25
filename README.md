@@ -19,16 +19,30 @@ Out[3]: D(i=1, s='s')
 In [4]: D(i='i', s='s')
 ---------------------------------------------------------------------------
 ValueError                                Traceback (most recent call last)
+File /vagrant/dev/cwtch/ext/core.pyx:618, in cwtch.core.make.validate_value_using_validator()
 ...
+
+ValueError: invalid literal for int() with base 10: 'i'
+
+During handling of the above exception, another exception occurred:
+
+ValidationError                           Traceback (most recent call last)
+...
+
+ValidationError: type=[<class 'int'>] input_type=[<class 'str'>]
+  E: invalid literal for int() with base 10: 'i'
+
+During handling of the above exception, another exception occurred:
+
 ValidationError                           Traceback (most recent call last)
 Cell In[4], line 1
 ----> 1 D(i='i', s='s')
 
-File <string>:9, in __init__(__cwtch_self__, i, s, **__cwtch_kwds__)
+File <string>:11, in __init__(__cwtch_self__, i, s, **__cwtch_kwds__)
 
-ValidationError: validation error for <class '__main__.D'> path=['i']
-  validation error for <class 'int'>
-    - invalid literal for int() with base 10: 'i'
+ValidationError: type=[<class '__main__.D'>] path=['i'] input_type=[<class 'str'>]
+  type=[<class 'int'>] input_type=[<class 'str'>]
+    E: invalid literal for int() with base 10: 'i'
 
 In [5]: D(i=1, s=0)
 Out[5]: D(i=1, s=0)

@@ -58,7 +58,7 @@ data = {
 data["sub"] = [data for _ in range(10)]
 
 
-def test_perf_cwtch():
+def test_memory_leak():
     p = psutil.Process()
 
     for _ in range(5):

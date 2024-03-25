@@ -1,23 +1,35 @@
 import dataclasses
 import re
+import types
+import typing
 from json import loads as json_loads
-from typing import Any
+from typing import Any, Type, TypeVar
+
+T = TypeVar("T")
 
 
 class TypeMetadata:
     """Base class for type metadata."""
 
+    def before(self, value, /):
+        return value
+
+    def after(self, value, /):
+        return value
+
     def json_schema(self) -> dict:
         return {}
 
-    def convert(self, value):
-        return value
 
-    def validate_before(self, value, /):
-        pass
+@typing.final
+@dataclasses.dataclass(kw_only=True, frozen=True, slots=True)
+class Validator:
+    before: typing.Callable = lambda v: v
+    after: typing.Callable = lambda v: v
+    json_schema: dict = dataclasses.field(default_factory=dict)
 
-    def validate_after(self, value, /):
-        pass
+    def __init_subclass__(cls, **kwds):
+        raise Exception("Validator class cannot be inherited")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -27,9 +39,10 @@ class Ge(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minimum": self.value}
 
-    def validate_after(self, value):
+    def after(self, value):
         if value < self.value:
             raise ValueError(f"value should be >= {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -39,9 +52,10 @@ class Gt(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minimum": self.value, "exclusiveMinimum": True}
 
-    def validate_after(self, value):
+    def after(self, value):
         if value <= self.value:
             raise ValueError(f"value should be > {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -51,9 +65,10 @@ class Le(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maximum": self.value}
 
-    def validate_after(self, value):
+    def after(self, value):
         if value > self.value:
             raise ValueError(f"value should be <= {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -63,9 +78,10 @@ class Lt(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maximum": self.value, "exclusiveMaximum": True}
 
-    def validate_after(self, value):
+    def after(self, value):
         if value >= self.value:
             raise ValueError(f"value should be < {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -75,9 +91,10 @@ class MinLen(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minLength": self.value}
 
-    def validate_after(self, value):
+    def after(self, value):
         if len(value) < self.value:
             raise ValueError(f"value length should be >= {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -87,9 +104,10 @@ class MaxLen(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maxLength": self.value}
 
-    def validate_after(self, value):
+    def after(self, value):
         if len(value) > self.value:
             raise ValueError(f"value length should be <= {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -99,9 +117,10 @@ class MinItems(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minItems": self.value}
 
-    def validate_after(self, value):
+    def after(self, value):
         if len(value) < self.value:
             raise ValueError(f"items count should be >= {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -111,9 +130,10 @@ class MaxItems(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maxItems": self.value}
 
-    def validate_after(self, value):
+    def after(self, value):
         if len(value) > self.value:
             raise ValueError(f"items count should be <= {self.value}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -123,9 +143,10 @@ class Match(TypeMetadata):
     def json_schema(self) -> dict:
         return {"pattern": self.pattern.pattern}
 
-    def validate_after(self, value: str):
+    def after(self, value: str):
         if not self.pattern.match(value):
             raise ValueError(f"value doesn't match pattern {self.pattern}")
+        return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -133,11 +154,12 @@ class UrlConstraints(TypeMetadata):
     schemes: list[str] | None = dataclasses.field(default=None)
     ports: list[int] | None = dataclasses.field(default=None)
 
-    def validate_after(self, value, /):
+    def after(self, value, /):
         if self.schemes is not None and value.scheme not in self.schemes:
             raise ValueError(f"URL scheme should be one of {self.schemes}")
         if self.ports is not None and value.port is not None and value.port not in self.ports:
             raise ValueError(f"port number should be one of {self.ports}")
+        return value
 
     def __hash__(self):
         return hash(f"{sorted(self.schemes or [])}{sorted(self.ports or [])}")
@@ -145,5 +167,45 @@ class UrlConstraints(TypeMetadata):
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class JsonValue(TypeMetadata):
-    def convert(self, value, /):
+    def before(self, value, /):
         return json_loads(value)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ToLower(TypeMetadata):
+    def after(self, value, /):
+        return value.lower()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ToUpper(TypeMetadata):
+    def after(self, value, /):
+        return value.upper()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Strict(TypeMetadata):
+    type: Type
+
+    def __post_init__(self):
+        def fn(tp):
+            tps = []
+            if hasattr(tp, "__args__"):
+                if tp.__class__ not in [types.UnionType, typing._UnionGenericAlias]:
+                    raise ValueError(f"{self.type} is unsupported by {self.__class__}")
+                for arg in tp.__args__:
+                    tps.extend(fn(arg))
+            else:
+                tps.append(tp)
+            return tps
+
+        object.__setattr__(self, "type", fn(self.type))
+
+    def __hash__(self):
+        return hash(f"{self.type}")
+
+    def before(self, value, /):
+        for tp in self.type:
+            if isinstance(value, tp) and type(value) == tp:
+                return value
+        raise ValueError(f"invalid value for {' | '.join(map(str, self.type))}")
