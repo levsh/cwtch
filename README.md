@@ -44,6 +44,6 @@ ValidationError: type=[<class '__main__.D'>] path=['i'] input_type=[<class 'str'
   type=[<class 'int'>] input_type=[<class 'str'>]
     E: invalid literal for int() with base 10: 'i'
 
-In [5]: D(i=1, s=0)
+In [5]: D(i='1', s=0)
 Out[5]: D(i=1, s=0)
 ```
