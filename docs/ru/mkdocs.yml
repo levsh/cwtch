@@ -1,12 +1,16 @@
 site_name: cwtch
 
-site_url: https://levsh.github.io/cwtch/
-
 nav:
-  - cwtch: index.md
+  - Описание: index.md
+  - Установка: installation.md
+  - Руководство пользователя:
+    - Основы: user_guide/basic.md
+    - Валидация: user_guide/validation.md
+    - Передставления (view): user_guide/view.md
+  - API справочник: api_reference.md
 
 theme:
-  language: en
+  language: ru
   name: material
   palette:
     scheme: slate
@@ -33,9 +37,9 @@ extra_css:
 
 extra:
   alternate:
-  - link: en
+  - link: ../en
     name: en - English
-  - link: ru
+  - link: .
     name: ru - Русский
 
 repo_url: https://github.com/levsh/cwtch

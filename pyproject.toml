@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cwtch"
-version = "0.1.0a7"
+version = "0.1.0"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
@@ -19,6 +19,7 @@ include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11, <4.0"
+rich = "*"
 
 [tool.poetry.group.test.dependencies]
 attrs = "*"
@@ -31,6 +32,9 @@ pytest = "==7.4.4"
 pytest-benchmark = "*"
 pytest-cov = "*"
 psutil = "*"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "*"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "*"
@@ -46,4 +50,14 @@ requires = ["poetry-core", "setuptools", "cython"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.black]
+line-length = 120
+
+[tool.isort]
+indent = 4
+lines_after_imports = 2
+lines_between_types = 1
+src_paths = ["."]
+profile = "black"
+
+[tool.ruff]
 line-length = 120

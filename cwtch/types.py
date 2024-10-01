@@ -1,4 +1,5 @@
 import re
+
 from functools import lru_cache
 from ipaddress import ip_address
 from typing import Annotated, TypeVar
@@ -6,7 +7,30 @@ from urllib.parse import urlparse
 
 from cwtch.metadata import Ge, MinItems, MinLen, Strict, ToLower, ToUpper
 
+
 T = TypeVar("T")
+
+
+class _MissingType:
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
+
+    def __bool__(self):
+        return False
+
+    def __str__(self):
+        return "_MISSING"
+
+    def __repr__(self):
+        return "_MISSING"
+
+
+_MISSING = _MissingType()
+
+Missing = T | _MissingType
 
 
 class UnsetType:
@@ -15,6 +39,9 @@ class UnsetType:
 
     def __deepcopy__(self, *args, **kwds):
         return self
+
+    def __bool__(self):
+        return False
 
     def __str__(self):
         return "UNSET"
@@ -25,8 +52,8 @@ class UnsetType:
 
 UNSET = UnsetType()
 
-
 Unset = T | UnsetType
+
 
 Number = int | float
 
@@ -49,48 +76,48 @@ StrictBool = Annotated[bool, Strict(bool)]
 @lru_cache
 def _validate_hostname(hostname: str):
     if 1 > len(hostname) > 255:
-        raise ValueError("hostname invalid")
+        raise ValueError("invalid hostname length")
     splitted = hostname.split(".")
-    if splitted[-1] and splitted[-1][0].isdigit():
+    if (last := splitted[-1]) and last[0].isdigit():
         ip_address(hostname)
     else:
         for label in splitted:
             if not re.match(r"(?!-)[a-zA-Z\d-]{1,63}(?<!-)$", label):
-                raise ValueError("hostname invalid")
+                raise ValueError("invalid hostname")
 
 
 class _UrlMixIn:
     @property
-    def scheme(self):
-        return self._url.scheme
+    def scheme(self) -> str | None:
+        return self._url.scheme  # type: ignore
 
     @property
-    def username(self):
-        return self._url.username
+    def username(self) -> str | None:
+        return self._url.username  # type: ignore
 
     @property
-    def password(self):
-        return self._url.password
+    def password(self) -> str | None:
+        return self._url.password  # type: ignore
 
     @property
-    def hostname(self):
-        return self._url.hostname
+    def hostname(self) -> str:
+        return self._url.hostname  # type: ignore
 
     @property
-    def port(self):
-        return self._url.port
+    def port(self) -> int | None:
+        return self._url.port  # type: ignore
 
     @property
-    def path(self):
-        return self._url.path
+    def path(self) -> str | None:
+        return self._url.path  # type: ignore
 
     @property
-    def query(self):
-        return self._url.query
+    def query(self) -> str | None:
+        return self._url.query  # type: ignore
 
     @property
-    def fragment(self):
-        return self._url.fragment
+    def fragment(self) -> str | None:
+        return self._url.fragment  # type: ignore
 
 
 class Url(str, _UrlMixIn):
@@ -136,7 +163,12 @@ class SecretStr(str):
     def __cwtch_json_schema__(cls) -> dict:
         return {"type": "string"}
 
-    def get_secret_value(self):
+    def __cwtch_asdict__(self, handler, context: dict | None = None, **kwds):
+        if (context or {}).get("show_secrets"):
+            return self.get_secret_value()
+        return self
+
+    def get_secret_value(self) -> str:
         return self._value
 
 
@@ -153,11 +185,14 @@ class SecretUrl(str, _UrlMixIn):
 
         obj = super().__new__(
             cls,
-            url._replace(netloc=f"***:***@{url.hostname}" + (f":{url.port}" if url.port is not None else "")).geturl()
-            if url.scheme
-            else url.geturl(),
+            (
+                url._replace(
+                    netloc=f"***:***@{url.hostname}" + (f":{url.port}" if url.port is not None else "")
+                ).geturl()
+                if url.scheme
+                else url.geturl()
+            ),
         )
-        # obj = super().__new__(cls, f"{url.with_user('***').with_password('***')}" if url.scheme else f"{url}")
         obj._value = value
         obj._url = url
         return obj
@@ -170,11 +205,6 @@ class SecretUrl(str, _UrlMixIn):
             else url.geturl()
         )
         return f"{self.__class__.__name__}({value})"
-        # return (
-        #     f"{self.__class__.__name__}({self._url.with_user('***').with_password('***')})"
-        #     if self._url.scheme
-        #     else f"{self._url}"
-        # )
 
     def __hash__(self):
         return hash(self._value)
@@ -197,5 +227,10 @@ class SecretUrl(str, _UrlMixIn):
     def __cwtch_json_schema__(cls) -> dict:
         return {"type": "string", "format": "uri"}
 
-    def get_secret_value(self):
+    def __cwtch_asdict__(self, handler, context: dict | None = None, **kwds):
+        if (context or {}).get("show_secrets"):
+            return self.get_secret_value()
+        return self
+
+    def get_secret_value(self) -> str:
         return self._value

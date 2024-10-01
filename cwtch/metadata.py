@@ -1,9 +1,11 @@
 import dataclasses
+import json
 import re
 import types
 import typing
-from json import loads as json_loads
+
 from typing import Any, Type, TypeVar
+
 
 T = TypeVar("T")
 
@@ -11,22 +13,22 @@ T = TypeVar("T")
 class TypeMetadata:
     """Base class for type metadata."""
 
+    def json_schema(self) -> dict:
+        return {}
+
     def before(self, value, /):
         return value
 
     def after(self, value, /):
         return value
 
-    def json_schema(self) -> dict:
-        return {}
-
 
 @typing.final
 @dataclasses.dataclass(kw_only=True, frozen=True, slots=True)
-class Validator:
+class Validator(TypeMetadata):
+    json_schema: dict = dataclasses.field(default_factory=lambda: dict)  # type: ignore
     before: typing.Callable = lambda v: v
     after: typing.Callable = lambda v: v
-    json_schema: dict = dataclasses.field(default_factory=dict)
 
     def __init_subclass__(cls, **kwds):
         raise Exception("Validator class cannot be inherited")
@@ -166,9 +168,12 @@ class UrlConstraints(TypeMetadata):
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class JsonValue(TypeMetadata):
+class JsonLoads(TypeMetadata):
     def before(self, value, /):
-        return json_loads(value)
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -191,7 +196,7 @@ class Strict(TypeMetadata):
         def fn(tp):
             tps = []
             if hasattr(tp, "__args__"):
-                if tp.__class__ not in [types.UnionType, typing._UnionGenericAlias]:
+                if tp.__class__ not in [types.UnionType, typing._UnionGenericAlias]:  # type: ignore
                     raise ValueError(f"{self.type} is unsupported by {self.__class__}")
                 for arg in tp.__args__:
                     tps.extend(fn(arg))
@@ -205,7 +210,7 @@ class Strict(TypeMetadata):
         return hash(f"{self.type}")
 
     def before(self, value, /):
-        for tp in self.type:
-            if isinstance(value, tp) and type(value) == tp:
+        for tp in typing.cast(list, self.type):
+            if isinstance(value, tp) and type(value) == tp:  # noqa: E721
                 return value
-        raise ValueError(f"invalid value for {' | '.join(map(str, self.type))}")
+        raise ValueError(f"invalid value for {' | '.join(map(str, typing.cast(list, self.type)))}")

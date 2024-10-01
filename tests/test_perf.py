@@ -1,13 +1,13 @@
 import time
 
 import attrs
-from msgspec import Struct, convert
-from pydantic import BaseModel
+import msgspec
+import pydantic
 
-from cwtch import dataclass
+import cwtch
 
 
-@dataclass(slots=True, ignore_extra=True)
+@cwtch.dataclass
 class CC:
     li1: list[int]
     li2: list[int]
@@ -19,7 +19,7 @@ class CC:
     dd: dict[str, int]
 
 
-@dataclass(slots=True)
+@cwtch.dataclass(extra="forbid")
 class C:
     i: int
     f: float
@@ -73,7 +73,7 @@ class A:
     sub2: list[AA] = attrs.field()
 
 
-class PP(BaseModel):
+class PP(pydantic.BaseModel):
     li1: list[int]
     li2: list[int]
     lf1: list[float]
@@ -84,7 +84,7 @@ class PP(BaseModel):
     dd: dict[str, int]
 
 
-class P(BaseModel, extra="forbid"):
+class P(pydantic.BaseModel, extra="forbid"):
     i: int
     f: float
     s: str
@@ -104,7 +104,7 @@ class P(BaseModel, extra="forbid"):
     sub2: list[PP]
 
 
-class MM(Struct):
+class MM(msgspec.Struct):
     li1: list[int]
     li2: list[int]
     lf1: list[float]
@@ -115,7 +115,7 @@ class MM(Struct):
     dd: dict[str, int]
 
 
-class M(Struct):
+class M(msgspec.Struct):
     i: int
     f: float
     s: str
@@ -173,12 +173,12 @@ data = {
 
 def test_perf_warm(benchmark):
     time.sleep(1)
-    benchmark(lambda: [convert(data, M, strict=False) for _ in range(1000)])
+    benchmark(lambda: [msgspec.convert(data, M, strict=False) for _ in range(1000)])
 
 
 def test_perf_msgspec(benchmark):
     time.sleep(1)
-    benchmark(lambda: [convert(data, M, strict=False) for _ in range(1000)])
+    benchmark(lambda: [msgspec.convert(data, M, strict=False) for _ in range(1000)])
 
 
 def test_perf_pydantic(benchmark):

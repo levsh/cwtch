@@ -1,3 +1,3 @@
-# About
+[English](en)
 
-**cwtch** - Python Data Classes with validation and views.
+[Русский](ru)

@@ -1,534 +1,19 @@
 import os
 import re
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import MISSING
-from datetime import date, datetime, timezone
-from enum import Enum
-from typing import Annotated, Any, Dict, ForwardRef, Generic, List, Literal, Set, Tuple, Type, TypeVar, Union
+
+from typing import Annotated, ForwardRef, Generic, Literal, Optional, TypeVar
 from unittest import mock
 
 import pytest
 
-from cwtch import (
-    asdict,
-    dataclass,
-    field,
-    get_current_parameters,
-    make_json_schema,
-    validate_args,
-    validate_value,
-    view,
-)
+from cwtch import asdict, dataclass, field, make_json_schema, validate_args, validate_value, view
 from cwtch.errors import ValidationError
-from cwtch.metadata import Ge, Gt, JsonValue, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
-from cwtch.types import UNSET, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, UpperStr
+from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
+from cwtch.types import _MISSING, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, UpperStr
+
 
 T = TypeVar("T")
 F = TypeVar("F")
-
-
-class TestValidateValue:
-    def test_none(self):
-        assert validate_value(None, None) is None
-        for value in (0, 0.0, "a", True, False, UNSET, object(), (), [], {}, int):
-            with pytest.raises(ValidationError, match=re.escape("E: value is not a None")):
-                validate_value(value, None)
-
-    def test_bool(self):
-        for value in (1, "1", "true", "True", "TRUE", "y", "Y", "t", "yes", "Yes", "YES"):
-            assert validate_value(value, bool) is True
-        for value in (0, "0", "false", "False", "FALSE", "n", "N", "f", "no", "No", "NO"):
-            assert validate_value(value, bool) is False
-        for value in (-2, 2):
-            with pytest.raises(
-                ValidationError,
-                match=re.escape(
-                    "type=[<class 'bool'>] input_type=[<class 'int'>]\n  E: could not convert value to bool"
-                ),
-            ):
-                validate_value(value, bool)
-        for value in ("ok", "not ok"):
-            with pytest.raises(
-                ValidationError,
-                match=re.escape(
-                    "type=[<class 'bool'>] input_type=[<class 'str'>]\n  E: could not convert value to bool"
-                ),
-            ):
-                validate_value(value, bool)
-
-    def test_int(self):
-        assert validate_value(-1, int) == -1
-        assert validate_value(0, int) == 0
-        assert validate_value(1, int) == 1
-        assert validate_value("1", int) == 1
-        assert validate_value(True, int) == 1
-        assert validate_value(False, int) == 0
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                "type=[<class 'int'>] input_type=[<class 'str'>]\n  E: invalid literal for int() with base 10: 'a'"
-            ),
-        ):
-            validate_value("a", int)
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[<class 'int'>] input_type=[<class 'NoneType'>]\n"
-                    "  E: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
-                )
-            ),
-        ):
-            validate_value(None, int)
-
-    def test_float(self):
-        assert validate_value(-1, float) == -1.0
-        assert validate_value(0, float) == 0.0
-        assert validate_value(1, float) == 1.0
-        assert validate_value("1.1", float) == 1.1
-        assert validate_value(True, float) == 1.0
-        assert validate_value(False, float) == 0.0
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                "type=[<class 'float'>] input_type=[<class 'str'>]\n  E: could not convert string to float: 'a'"
-            ),
-        ):
-            validate_value("a", float)
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[<class 'float'>] input_type=[<class 'NoneType'>]\n"
-                    "  E: float() argument must be a string or a real number, not 'NoneType'"
-                )
-            ),
-        ):
-            validate_value(None, float)
-
-    def test_str(self):
-        assert validate_value(0, str) == "0"
-        assert validate_value("a", str) == "a"
-        assert validate_value(None, str) == "None"
-        assert validate_value(True, str) == "True"
-        assert validate_value(False, str) == "False"
-
-    def test_bytes(self):
-        assert validate_value(b"b", bytes) == b"b"
-        assert validate_value("b", bytes) == b"b"
-        assert validate_value(0, bytes) == b""
-        assert validate_value(1, bytes) == b"\x00"
-        assert validate_value(False, bytes) == b""
-        assert validate_value(True, bytes) == b"\x00"
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                "type=[<class 'bytes'>] input_type=[<class 'float'>]\n  E: cannot convert 'float' object to bytes"
-            ),
-        ):
-            validate_value(1.1, bytes)
-
-    def test_datetime(self):
-        assert validate_value(
-            "2023-01-01T00:00:00+00:00",
-            datetime,
-        ) == datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc)
-        assert validate_value(
-            datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc),
-            datetime,
-        ) == datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc)
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                "type=[<class 'datetime.datetime'>] input_type=[<class 'str'>]\n  E: Invalid isoformat string: '2023'"
-            ),
-        ):
-            validate_value("2023", datetime)
-
-    def test_date(self):
-        assert validate_value("2023-01-01", date) == date(2023, 1, 1)
-        assert validate_value(date(2023, 1, 1), date) == date(2023, 1, 1)
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                "type=[<class 'datetime.date'>] input_type=[<class 'str'>]\n  E: Invalid isoformat string: '2023'"
-            ),
-        ):
-            validate_value("2023", date)
-
-    def test_literal(self):
-        validate_value("A", Literal["A", "B"])
-        validate_value("B", Literal["A", "B"])
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                "type=[typing.Literal['A', 'B']] input_type=[<class 'str'>]\n  E: value is not a one of ['A', 'B']"
-            ),
-        ):
-            validate_value("C", Literal["A", "B"])
-        with pytest.raises(
-            ValidationError,
-            match=re.escape("type=[typing.Literal['1']] input_type=[<class 'int'>]\n  E: value is not a one of ['1']"),
-        ):
-            validate_value(1, Literal["1"])
-        with pytest.raises(
-            ValidationError,
-            match=re.escape("type=[typing.Literal[1]] input_type=[<class 'str'>]\n  E: value is not a one of [1]"),
-        ):
-            validate_value("1", Literal[1])
-
-    def test_enum(self):
-        class E(str, Enum):
-            A = "a"
-
-        assert isinstance(validate_value("a", E), E)
-        assert validate_value("a", E) == E.A
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[<enum 'E'>] input_type=[<class 'int'>]\n"
-                    "  E: 1 is not a valid TestValidateValue.test_enum.<locals>.E"
-                )
-            ),
-        ):
-            validate_value(1, E)
-
-    def test_list(self):
-        for T in (list, List):
-            assert validate_value([], T) == []
-            assert validate_value((), T) == []
-            assert validate_value([], T[int]) == []
-            assert validate_value((), T[int]) == []
-            assert validate_value([0, 1], T) == [0, 1]
-            assert validate_value((0, 1), T) == [0, 1]
-            assert validate_value([0, 1], T[int]) == [0, 1]
-            assert validate_value((0, 1), T[int]) == [0, 1]
-            assert validate_value([0, 1], T[str]) == ["0", "1"]
-            assert validate_value((0, 1), T[str]) == ["0", "1"]
-            assert validate_value([0, "1"], T[int]) == [0, 1]
-            assert validate_value((0, "1"), T[int]) == [0, 1]
-            assert validate_value([[0], (1,)], T[T[int]]) == [[0], [1]]
-            assert validate_value(([0], (1,)), T[T[int]]) == [[0], [1]]
-            assert validate_value([[0], ("1",)], T[T[int]]) == [[0], [1]]
-            assert validate_value(([0], ("1",)), T[T[int]]) == [[0], [1]]
-            assert validate_value([["0"], ("y",)], T[T[bool]]) == [[False], [True]]
-            assert validate_value((["0"], ("y",)), T[T[bool]]) == [[False], [True]]
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[list[int]] path=[1] input_type=[<class 'list'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value([0, "a"], list[int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.List[int]] path=[1] input_type=[<class 'list'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value([0, "a"], List[int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[list[int]] path=[1] input_type=[<class 'tuple'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value((0, "a"), list[int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.List[int]] path=[1] input_type=[<class 'tuple'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value((0, "a"), List[int])
-
-    def test_tuple(self):
-        for T in (tuple, Tuple):
-            assert validate_value((), T) == ()
-            assert validate_value([], T) == ()
-            assert validate_value((), T[int]) == ()
-            assert validate_value([], T[int]) == ()
-            assert validate_value((0, 1), T) == (0, 1)
-            assert validate_value([0, 1], T) == (0, 1)
-            assert validate_value((0, 1), T[int, int]) == (0, 1)
-            assert validate_value([0, 1], T[int, int]) == (0, 1)
-            assert validate_value((0, 1), T[int, str]) == (0, "1")
-            assert validate_value([0, 1], T[int, str]) == (0, "1")
-            assert validate_value((0, "1"), T[int, ...]) == (0, 1)
-            assert validate_value([0, "1"], T[int, ...]) == (0, 1)
-            assert validate_value((0, 1, "2"), T[int, ...]) == (0, 1, 2)
-            assert validate_value([0, 1, "2"], T[int, ...]) == (0, 1, 2)
-            assert validate_value(([0], [1]), T[list[int], list[int]]) == ([0], [1])
-            assert validate_value([[0], [1]], T[list[int], list[int]]) == ([0], [1])
-            assert validate_value(([0], ["1"]), T[list[int], list[int]]) == ([0], [1])
-            assert validate_value([[0], ["1"]], T[list[int], list[int]]) == ([0], [1])
-            assert validate_value((["0"], ["y"]), T[list[bool], tuple[bool]]) == ([False], (True,))
-            assert validate_value([["0"], ["y"]], T[list[bool], tuple[bool]]) == ([False], (True,))
-            assert validate_value(tuple(range(100)), T[int, ...]) == tuple(range(100))
-            assert validate_value(list(range(100)), T[int, ...]) == tuple(range(100))
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[tuple[int, int]] path=[1] input_type=[<class 'tuple'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value((0, "a"), tuple[int, int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Tuple[int, int]] path=[1] input_type=[<class 'tuple'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value((0, "a"), Tuple[int, int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[tuple[int, int]] path=[1] input_type=[<class 'list'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value([0, "a"], tuple[int, int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Tuple[int, int]] path=[1] input_type=[<class 'list'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value([0, "a"], Tuple[int, int])
-
-    def test_set(self):
-        for T in (set, Set):
-            assert validate_value(set(), T) == set()
-            assert validate_value([], T) == set()
-            assert validate_value(set(), T[int]) == set()
-            assert validate_value([], T[int]) == set()
-            assert validate_value({0, 1}, T) == {0, 1}
-            assert validate_value([0, 1], T) == {0, 1}
-            assert validate_value({0, 1}, T[int]) == {0, 1}
-            assert validate_value([0, 1], T[int]) == {0, 1}
-            assert validate_value({"0", "1"}, T[int]) == {0, 1}
-            assert validate_value(["0", "1"], T[int]) == {0, 1}
-            assert validate_value([{0}, {1}], T[tuple[int]]) == {(0,), (1,)}
-            assert validate_value([[0], [1]], T[tuple[int]]) == {(0,), (1,)}
-            assert validate_value([{"0"}, {"1"}], T[tuple[int]]) == {(0,), (1,)}
-            assert validate_value([["0"], ["1"]], T[tuple[int]]) == {(0,), (1,)}
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[set[int]] path=[1] input_type=[<class 'list'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value([0, "a"], set[int])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Set[int]] path=[1] input_type=[<class 'list'>]\n"
-                    "  E: invalid literal for int() with base 10: 'a'"
-                )
-            ),
-        ):
-            validate_value([0, "a"], Set[int])
-
-    def test_mapping(self):
-        for T in (dict, Dict, Mapping):
-            assert validate_value({}, T) == {}
-            assert validate_value({"k": "v"}, T) == {"k": "v"}
-            assert validate_value({"k": "v"}, T[str, str]) == {"k": "v"}
-            assert validate_value({"0": "1"}, T[int, int]) == {0: 1}
-            assert validate_value({}, T) == {}
-            assert validate_value({"k": "v"}, T) == {"k": "v"}
-            assert validate_value({"k": "v"}, T[str, str]) == {"k": "v"}
-            assert validate_value({"0": "1"}, T[int, int]) == {0: 1}
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[dict[str, dict[str, int]]] path=['k', 'kk'] input_type=[<class 'dict'>]\n"
-                    "  type=[dict[str, int]] path=['kk'] input_type=[<class 'dict'>]\n"
-                    "    E: invalid literal for int() with base 10: 'v'"
-                )
-            ),
-        ):
-            assert validate_value({"k": {"kk": "v"}}, dict[str, dict[str, int]])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Dict[str, dict[str, int]]] path=['k', 'kk'] input_type=[<class 'dict'>]\n"
-                    "  type=[dict[str, int]] path=['kk'] input_type=[<class 'dict'>]\n"
-                    "    E: invalid literal for int() with base 10: 'v'"
-                )
-            ),
-        ):
-            assert validate_value({"k": {"kk": "v"}}, Dict[str, dict[str, int]])
-
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[collections.abc.Mapping[str, dict[str, int]]] path=['k', 'kk'] input_type=[<class 'dict'>]\n"
-                    "  type=[dict[str, int]] path=['kk'] input_type=[<class 'dict'>]\n"
-                    "    E: invalid literal for int() with base 10: 'v'"
-                )
-            ),
-        ):
-            assert validate_value({"k": {"kk": "v"}}, Mapping[str, dict[str, int]])
-
-    def test_abcmeta(self):
-        assert validate_value([1], Iterable) == [1]
-        assert validate_value([1], Iterable[int]) == [1]
-        assert validate_value([1], Sequence) == [1]
-        assert validate_value([1], Sequence[int]) == [1]
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[<class 'collections.abc.Iterable'>] input_type=[<class 'int'>]\n"
-                    "  E: value is not a valid <class 'collections.abc.Iterable'>"
-                )
-            ),
-        ):
-            validate_value(1, Iterable)
-
-    def test_type(self):
-        class A:
-            pass
-
-        class B(A):
-            pass
-
-        class C:
-            pass
-
-        assert validate_value(A, Type[A]) == A
-        assert validate_value(B, Type[A]) == B
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Type[test_cwtch.TestValidateValue.test_type.<locals>.A]] input_type=[<class 'type'>]\n"
-                    "  E: invalid value for typing.Type[test_cwtch.TestValidateValue.test_type.<locals>.A]"
-                )
-            ),
-        ):
-            validate_value(C, Type[A])
-
-    def test_union(self):
-        assert validate_value(1, int | str) == 1
-        assert validate_value(1, Union[int, str]) == 1
-        assert validate_value(1, str | int) == 1
-        assert validate_value(1, Union[str, int]) == 1
-        assert validate_value(1, str | float) == "1"
-        assert validate_value(1, Union[str, float]) == "1"
-        assert validate_value(1, float | str) == 1.0
-        assert validate_value(1, Union[float | str]) == 1.0
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[int | float] input_type=[<class 'str'>]\n"
-                    "  type=[<class 'int'>] input_type=[<class 'str'>]\n"
-                    "    E: invalid literal for int() with base 10: 'a'\n"
-                    "  type=[<class 'float'>] input_type=[<class 'str'>]\n"
-                    "    E: could not convert string to float: 'a'"
-                )
-            ),
-        ):
-            assert validate_value("a", int | float) == "a"
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Union[int, float]] input_type=[<class 'str'>]\n"
-                    "  type=[<class 'int'>] input_type=[<class 'str'>]\n"
-                    "    E: invalid literal for int() with base 10: 'a'\n"
-                    "  type=[<class 'float'>] input_type=[<class 'str'>]\n"
-                    "    E: could not convert string to float: 'a'"
-                )
-            ),
-        ):
-            assert validate_value("a", Union[int, float]) == "a"
-
-        T = Annotated[int | float, Ge(1)]
-        assert validate_value("a", T | str) == "a"
-        assert validate_value("a", Union[T, str]) == "a"
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Union[typing.Annotated[int | float, Ge(value=1)], bool]] input_type=[<class 'str'>]\n"
-                    "  type=[int | float] input_type=[<class 'str'>]\n"
-                    "    type=[<class 'int'>] input_type=[<class 'str'>]\n"
-                    "      E: invalid literal for int() with base 10: 'a'\n"
-                    "    type=[<class 'float'>] input_type=[<class 'str'>]\n"
-                    "      E: could not convert string to float: 'a'\n"
-                    "  type=[<class 'bool'>] input_type=[<class 'str'>]\n"
-                    "    E: could not convert value to bool"
-                )
-            ),
-        ):
-            assert validate_value("a", T | bool) == "a"
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[typing.Union[typing.Annotated[int | float, Ge(value=1)], bool]] input_type=[<class 'str'>]\n"
-                    "  type=[int | float] input_type=[<class 'str'>]\n"
-                    "    type=[<class 'int'>] input_type=[<class 'str'>]\n"
-                    "      E: invalid literal for int() with base 10: 'a'\n"
-                    "    type=[<class 'float'>] input_type=[<class 'str'>]\n"
-                    "      E: could not convert string to float: 'a'\n"
-                    "  type=[<class 'bool'>] input_type=[<class 'str'>]\n"
-                    "    E: could not convert value to bool"
-                )
-            ),
-        ):
-            assert validate_value("a", Union[T, bool]) == "a"
-
-        assert validate_value(1, int | Any) == 1
-        assert validate_value(1, Union[int, Any]) == 1
-        assert validate_value("1", int | Any) == "1"
-        assert validate_value("1", Union[int, Any]) == "1"
 
 
 class TestMetadata:
@@ -537,7 +22,10 @@ class TestMetadata:
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                "type=[typing.Annotated[int, Ge(value=1)]] input_type=[<class 'int'>]\n  E: value should be >= 1"
+                (
+                    "type[ Annotated[int, Ge(value=1)] ] value_type[ <class 'int'> ] value[ 0 ]\n"
+                    "  Error: value should be >= 1"
+                )
             ),
         ):
             validate_value(0, Annotated[int, Ge(1)])
@@ -547,8 +35,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[int, Ge(value=2), Ge(value=1)]] input_type=[<class 'int'>]\n"
-                    "  E: value should be >= 2"
+                    "type[ Annotated[int, Ge(value=2), Ge(value=1)] ] value_type[ <class 'int'> ] value[ 1 ]\n"
+                    "  Error: value should be >= 2"
                 )
             ),
         ):
@@ -559,7 +47,10 @@ class TestMetadata:
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                "type=[typing.Annotated[int, Gt(value=0)]] input_type=[<class 'int'>]\n  E: value should be > 0"
+                (
+                    "type[ Annotated[int, Gt(value=0)] ] value_type[ <class 'int'> ] value[ 0 ]\n"
+                    "  Error: value should be > 0"
+                )
             ),
         ):
             validate_value(0, Annotated[int, Gt(0)])
@@ -569,8 +60,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[int, Gt(value=2), Gt(value=1)]] input_type=[<class 'int'>]\n"
-                    "  E: value should be > 2"
+                    "type[ Annotated[int, Gt(value=2), Gt(value=1)] ] value_type[ <class 'int'> ] value[ 2 ]\n"
+                    "  Error: value should be > 2"
                 )
             ),
         ):
@@ -581,7 +72,10 @@ class TestMetadata:
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                "type=[typing.Annotated[int, Le(value=1)]] input_type=[<class 'int'>]\n  E: value should be <= 1"
+                (
+                    "type[ Annotated[int, Le(value=1)] ] value_type[ <class 'int'> ] value[ 2 ]\n"
+                    "  Error: value should be <= 1"
+                )
             ),
         ):
             validate_value(2, Annotated[int, Le(1)])
@@ -591,8 +85,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[int, Le(value=1), Le(value=2)]] input_type=[<class 'int'>]\n"
-                    "  E: value should be <= 1"
+                    "type[ Annotated[int, Le(value=1), Le(value=2)] ] value_type[ <class 'int'> ] value[ 2 ]\n"
+                    "  Error: value should be <= 1"
                 )
             ),
         ):
@@ -603,7 +97,10 @@ class TestMetadata:
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                "type=[typing.Annotated[int, Lt(value=0)]] input_type=[<class 'int'>]\n  E: value should be < 0"
+                (
+                    "type[ Annotated[int, Lt(value=0)] ] value_type[ <class 'int'> ] value[ 0 ]\n"
+                    "  Error: value should be < 0"
+                )
             ),
         ):
             validate_value(0, Annotated[int, Lt(0)])
@@ -613,8 +110,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[int, Lt(value=0), Lt(value=1)]] input_type=[<class 'int'>]\n"
-                    "  E: value should be < 0"
+                    "type[ Annotated[int, Lt(value=0), Lt(value=1)] ] value_type[ <class 'int'> ] value[ 0 ]\n"
+                    "  Error: value should be < 0"
                 )
             ),
         ):
@@ -626,8 +123,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MinLen(value=1)]] input_type=[<class 'list'>]\n"
-                    "  E: value length should be >= 1"
+                    "type[ Annotated[list, MinLen(value=1)] ] value_type[ <class 'list'> ] value[ [] ]\n"
+                    "  Error: value length should be >= 1"
                 )
             ),
         ):
@@ -638,8 +135,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MinLen(value=2), MinLen(value=1)]] input_type=[<class 'list'>]\n"
-                    "  E: value length should be >= 2"
+                    "type[ Annotated[list, MinLen(value=2), MinLen(value=1)] ] value_type[ <class 'list'> ] value[ [0] ]\n"
+                    "  Error: value length should be >= 2"
                 )
             ),
         ):
@@ -651,8 +148,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MaxLen(value=1)]] input_type=[<class 'list'>]\n"
-                    "  E: value length should be <= 1"
+                    "type[ Annotated[list, MaxLen(value=1)] ] value_type[ <class 'list'> ] value[ [0, 1] ]\n"
+                    "  Error: value length should be <= 1"
                 )
             ),
         ):
@@ -663,8 +160,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MaxLen(value=1), MaxLen(value=2)]] input_type=[<class 'list'>]\n"
-                    "  E: value length should be <= 1"
+                    "type[ Annotated[list, MaxLen(value=1), MaxLen(value=2)] ] value_type[ <class 'list'> ] value[ [0, 1] ]\n"
+                    "  Error: value length should be <= 1"
                 )
             ),
         ):
@@ -676,8 +173,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MinItems(value=1)]] input_type=[<class 'list'>]\n"
-                    "  E: items count should be >= 1"
+                    "type[ Annotated[list, MinItems(value=1)] ] value_type[ <class 'list'> ] value[ [] ]\n"
+                    "  Error: items count should be >= 1"
                 )
             ),
         ):
@@ -688,8 +185,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MinItems(value=2), MinItems(value=1)]] input_type=[<class 'list'>]\n"
-                    "  E: items count should be >= 2"
+                    "type[ Annotated[list, MinItems(value=2), MinItems(value=1)] ] value_type[ <class 'list'> ] value[ [0] ]\n"
+                    "  Error: items count should be >= 2"
                 )
             ),
         ):
@@ -701,8 +198,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MaxItems(value=1)]] input_type=[<class 'list'>]\n"
-                    "  E: items count should be <= 1"
+                    "type[ Annotated[list, MaxItems(value=1)] ] value_type[ <class 'list'> ] value[ [0, 1] ]\n"
+                    "  Error: items count should be <= 1"
                 )
             ),
         ):
@@ -713,8 +210,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[list, MaxItems(value=1), MaxItems(value=2)]] input_type=[<class 'list'>]\n"
-                    "  E: items count should be <= 1"
+                    "type[ Annotated[list, MaxItems(value=1), MaxItems(value=2)] ] value_type[ <class 'list'> ] value[ [0, 1] ]\n"
+                    "  Error: items count should be <= 1"
                 )
             ),
         ):
@@ -726,8 +223,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[list[typing.Annotated[int, Ge(value=1)]]] path=[2] input_type=[<class 'list'>]\n"
-                    "  E: value should be >= 1"
+                    "type[ list[Annotated[int, Ge(value=1)]] ] path[ 2 ] value_type[ <class 'list'> ] path_value[ 0 ]\n"
+                    "  Error: value should be >= 1"
                 )
             ),
         ):
@@ -738,8 +235,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[list[typing.Annotated[int, Ge(value=1)]]] path=[2] input_type=[<class 'tuple'>]\n"
-                    "  E: value should be >= 1"
+                    "type[ list[Annotated[int, Ge(value=1)]] ] path[ 2 ] value_type[ <class 'tuple'> ] path_value[ 0 ]\n"
+                    "  Error: value should be >= 1"
                 )
             ),
         ):
@@ -759,8 +256,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[int, Strict(type=[<class 'int'>])]] input_type=[<class 'str'>]\n"
-                    "  E: invalid value for <class 'int'>"
+                    "type[ Annotated[int, Strict(type=[<class 'int'>])] ] value_type[ <class 'str'> ] value[ '1' ]\n"
+                    "  Error: invalid value for <class 'int'>"
                 )
             ),
         ):
@@ -769,8 +266,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[int, Strict(type=[<class 'int'>])]] input_type=[<class 'bool'>]\n"
-                    "  E: invalid value for <class 'int'>"
+                    "type[ Annotated[int, Strict(type=[<class 'int'>])] ] value_type[ <class 'bool'> ] value[ True ]\n"
+                    "  Error: invalid value for <class 'int'>"
                 )
             ),
         ):
@@ -782,8 +279,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[float, Strict(type=[<class 'float'>])]] input_type=[<class 'int'>]\n"
-                    "  E: invalid value for <class 'float'>"
+                    "type[ Annotated[float, Strict(type=[<class 'float'>])] ] value_type[ <class 'int'> ] value[ 1 ]\n"
+                    "  Error: invalid value for <class 'float'>"
                 )
             ),
         ):
@@ -792,8 +289,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[float, Strict(type=[<class 'float'>])]] input_type=[<class 'bool'>]\n"
-                    "  E: invalid value for <class 'float'>"
+                    "type[ Annotated[float, Strict(type=[<class 'float'>])] ] value_type[ <class 'bool'> ] value[ True ]\n"
+                    "  Error: invalid value for <class 'float'>"
                 )
             ),
         ):
@@ -806,12 +303,12 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Union[typing.Annotated[int, Strict(type=[<class 'int'>])], "
-                    "typing.Annotated[float, Strict(type=[<class 'float'>])]]] input_type=[<class 'str'>]\n"
-                    "  type=[typing.Annotated[int, Strict(type=[<class 'int'>])]] input_type=[<class 'str'>]\n"
-                    "    E: invalid value for <class 'int'>\n"
-                    "  type=[typing.Annotated[float, Strict(type=[<class 'float'>])]] input_type=[<class 'str'>]\n"
-                    "    E: invalid value for <class 'float'>"
+                    "type[ Union[Annotated[int, Strict(type=[<class 'int'>])], "
+                    "Annotated[float, Strict(type=[<class 'float'>])]] ] value_type[ <class 'str'> ] value[ '1' ]\n"
+                    "  type[ Annotated[int, Strict(type=[<class 'int'>])] ] value_type[ <class 'str'> ]\n"
+                    "    Error: invalid value for <class 'int'>\n"
+                    "  type[ Annotated[float, Strict(type=[<class 'float'>])] ] value_type[ <class 'str'> ]\n"
+                    "    Error: invalid value for <class 'float'>"
                 )
             ),
         ):
@@ -820,12 +317,12 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Union[typing.Annotated[int, Strict(type=[<class 'int'>])], "
-                    "typing.Annotated[float, Strict(type=[<class 'float'>])]]] input_type=[<class 'bool'>]\n"
-                    "  type=[typing.Annotated[int, Strict(type=[<class 'int'>])]] input_type=[<class 'bool'>]\n"
-                    "    E: invalid value for <class 'int'>\n"
-                    "  type=[typing.Annotated[float, Strict(type=[<class 'float'>])]] input_type=[<class 'bool'>]\n"
-                    "    E: invalid value for <class 'float'>"
+                    "type[ Union[Annotated[int, Strict(type=[<class 'int'>])], "
+                    "Annotated[float, Strict(type=[<class 'float'>])]] ] value_type[ <class 'bool'> ] value[ True ]\n"
+                    "  type[ Annotated[int, Strict(type=[<class 'int'>])] ] value_type[ <class 'bool'> ]\n"
+                    "    Error: invalid value for <class 'int'>\n"
+                    "  type[ Annotated[float, Strict(type=[<class 'float'>])] ] value_type[ <class 'bool'> ]\n"
+                    "    Error: invalid value for <class 'float'>"
                 )
             ),
         ):
@@ -837,8 +334,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[str, Strict(type=[<class 'str'>])]] input_type=[<class 'int'>]\n"
-                    "  E: invalid value for <class 'str'>"
+                    "type[ Annotated[str, Strict(type=[<class 'str'>])] ] value_type[ <class 'int'> ] value[ 1 ]\n"
+                    "  Error: invalid value for <class 'str'>"
                 )
             ),
         ):
@@ -847,8 +344,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[str, Strict(type=[<class 'str'>])]] input_type=[<class 'bool'>]\n"
-                    "  E: invalid value for <class 'str'>"
+                    "type[ Annotated[str, Strict(type=[<class 'str'>])] ] value_type[ <class 'bool'> ] value[ True ]\n"
+                    "  Error: invalid value for <class 'str'>"
                 )
             ),
         ):
@@ -861,8 +358,8 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[typing.Annotated[bool, Strict(type=[<class 'bool'>])]] input_type=[<class 'int'>]\n"
-                    "  E: invalid value for <class 'bool'>"
+                    "type[ Annotated[bool, Strict(type=[<class 'bool'>])] ] value_type[ <class 'int'> ] value[ 1 ]\n"
+                    "  Error: invalid value for <class 'bool'>"
                 )
             ),
         ):
@@ -870,7 +367,7 @@ class TestMetadata:
 
 
 class TestModel:
-    def test_model_simple(self):
+    def test_validate_value(self):
         @dataclass
         class M:
             i: int
@@ -879,8 +376,8 @@ class TestModel:
         assert validate_value({"i": 1, "s": "s"}, M) == M(i=1, s="s")
 
     def test_model(self):
-        @dataclass(slots=True)
-        class A:
+        @dataclass
+        class M:
             i: int
             s: str
             b: bool
@@ -893,7 +390,7 @@ class TestModel:
             ai: Annotated[int, Ge(0)]
             al: Annotated[list[int], MinLen(1)]
 
-        a = A(
+        m = M(
             i="1",
             s=1,
             b="y",
@@ -906,17 +403,17 @@ class TestModel:
             ai="1",
             al=[0, "1"],
         )
-        assert a.i == 1
-        assert a.s == "1"
-        assert a.b is True
-        assert a.l == [0, "1"]
-        assert a.t == ("0", 1)
-        assert a.li == [0, 1]
-        assert a.ti == (0, 1)
-        assert a.d == {}
-        assert a.dd == {"0": 0, "1": 1}
-        assert a.ai == 1
-        assert a.al == [0, 1]
+        assert m.i == 1
+        assert m.s == "1"
+        assert m.b is True
+        assert m.l == [0, "1"]
+        assert m.t == ("0", 1)
+        assert m.li == [0, 1]
+        assert m.ti == (0, 1)
+        assert m.d == {}
+        assert m.dd == {"0": 0, "1": 1}
+        assert m.ai == 1
+        assert m.al == [0, 1]
 
         @dataclass
         class M:
@@ -927,9 +424,9 @@ class TestModel:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[<class 'test_cwtch.TestModel.test_model.<locals>.M'>] path=['i'] input_type=[<class 'str'>]\n"
-                    "  type=[<class 'int'>] input_type=[<class 'str'>]\n"
-                    "    E: invalid literal for int() with base 10: 'a'"
+                    "type[ <class 'test_cwtch.M'> ] path[ 'i' ] value_type[ <class 'str'> ]\n"
+                    "  type[ <class 'int'> ] value_type[ <class 'str'> ] value[ 'a' ]\n"
+                    "    Error: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -971,8 +468,8 @@ class TestModel:
 
         @dataclass
         class A:
-            a1: "B"
-            a2: B
+            b1: "B"
+            b2: B
 
         @dataclass
         class B:
@@ -980,23 +477,34 @@ class TestModel:
 
         A.cwtch_update_forward_refs(globals(), locals())
 
-        a = validate_value({"a1": {"i": 1}, "a2": {"i": 2}}, A)
-        assert a.a1.i == 1
-        assert a.a2.i == 2
+        a = validate_value({"b1": {"i": 1}, "b2": {"i": 2}}, A)
+        assert a.b1.i == 1
+        assert a.b2.i == 2
 
-    def test_ignore_extra(self):
-        @dataclass(ignore_extra=True)
-        class A:
+    def test_extra_ignore(self):
+        @dataclass
+        class M:
             i: int
 
-        aa = A(i="1", s="a", b="false")
-        assert aa.i == 1
+        m = M(i="1", s="a")
+        assert m.i == 1
 
-    def test_env_prefix(self):
-        @dataclass(env_prefix="TEST_", slots=True)
+    def test_extra_forbid(self):
+        @dataclass(extra="forbid")
         class M:
-            i: int = field(default=0, env_var=True)
-            j: int = field(default_factory=lambda: 7, env_var=True)
+            i: int
+
+        with pytest.raises(
+            TypeError,
+            match=re.escape("M.__init__() got an unexpected keyword argument 's'"),
+        ):
+            M(i=0, s="s")
+
+    def test_env(self):
+        @dataclass(env_prefix="TEST_")
+        class M:
+            i: int = field(default=0, metadata={"env_var": True})
+            j: int = field(default_factory=lambda: 7, metadata={"env_var": True})
 
         env = {}
         with mock.patch.dict(os.environ, env, clear=True):
@@ -1013,18 +521,42 @@ class TestModel:
             assert M().i == 0
             assert M().j == 0
 
+    def test_env_multi_prefix(self):
+        @dataclass(env_prefix=["TEST1_", "TEST2_"])
+        class M:
+            i: int = field(default=0, metadata={"env_var": True})
+            j: int = field(default_factory=lambda: 7, metadata={"env_var": True})
+
+        env = {}
+        with mock.patch.dict(os.environ, env, clear=True):
+            assert M().i == 0
+            assert M().j == 7
+
+        env = {"TEST1_I": "1"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            assert M().i == 1
+            assert M().j == 7
+
+        env = {"TEST2_J": "0"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            assert M().i == 0
+            assert M().j == 0
+
     def test_inheritance(self):
-        @dataclass(slots=True)
+        @dataclass
         class A:
             i: int
 
-        @dataclass(slots=True)
+        @dataclass
         class B(A):
             i: float
             s: str
 
-        assert B.__dataclass_fields__["i"].type == float
-        assert B.__dataclass_fields__["s"].type == str
+        assert B.__bases__ == (A,)
+        assert B.__mro__ == (B, A, object)
+
+        assert B.__cwtch_fields__["i"].type == float
+        assert B.__cwtch_fields__["s"].type == str
 
     def test_generic(self):
         @dataclass
@@ -1038,20 +570,21 @@ class TestModel:
             ValidationError,
             match=re.escape(
                 (
-                    "type=[<class 'test_cwtch.TestModel.test_generic.<locals>.C'>] path=['x'] input_type=[<class 'list'>]\n"
-                    "  type=[list[int]] path=[0] input_type=[<class 'list'>]\n"
-                    "    E: invalid literal for int() with base 10: 'a'"
+                    "type[ <class 'cwtch.cwtch.C[int]'> ] path[ 'x' ] value_type[ <class 'list'> ]\n"
+                    "  type[ list[int] ] path[ 0 ] value_type[ <class 'list'> ] path_value[ 'a' ]\n"
+                    "    Error: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
             validate_value({"x": ["a"]}, C[int])
+
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
-                    "type=[<class 'test_cwtch.TestModel.test_generic.<locals>.C'>] path=['x'] input_type=[<class 'list'>]\n"
-                    "  type=[list[int]] path=[0] input_type=[<class 'list'>]\n"
-                    "    E: invalid literal for int() with base 10: 'a'"
+                    "type[ <class 'cwtch.cwtch.C[int]'> ] path[ 'x' ] value_type[ <class 'list'> ]\n"
+                    "  type[ list[int] ] path[ 0 ] value_type[ <class 'list'> ] path_value[ 'a' ]\n"
+                    "    Error: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -1065,313 +598,282 @@ class TestModel:
         M(i=0)
 
         with pytest.raises(
-            ValidationError,
+            # ValidationError,
+            TypeError,
             match=re.escape(
-                (
-                    "type=[<class 'test_cwtch.TestModel.test_init.<locals>.M'>] "
-                    "path=['i'] input_type=[<class 'dataclasses._MISSING_TYPE'>]\n"
-                    "  E: TestModel.test_init.<locals>.M.__init__() missing required keyword-only argument: 'i'"
-                )
+                # (
+                #     "type[ <class 'test_cwtch.TestModel.test_init.<locals>.M'> ] "
+                #     "path[ 'i'] value_type[ <class 'cwtch.types.UnsetType'> ]\n"
+                #     "  Error: M.__init__() missing required keyword-only argument: 'i'"
+                # )
+                "M.__init__() missing required keyword-only argument: 'i'"
             ),
         ):
             M()
 
         with pytest.raises(
             TypeError,
-            match=re.escape("TestModel.test_init.<locals>.M.__init__() takes 1 positional argument but 2 were given"),
+            match=re.escape("M.__init__() takes 1 positional argument but 2 were given"),
         ):
             M(0)
 
-        with pytest.raises(
-            ValidationError,
-            match=re.escape(
-                (
-                    "type=[<class 'test_cwtch.TestModel.test_init.<locals>.M'>] "
-                    "path=['M.__init__'] input_type=[<class 'dict'>]\n"
-                    "  E: TestModel.test_init.<locals>.M.__init__() got an unexpected keyword argument 's'"
-                )
-            ),
-        ):
-            M(i=0, s="s")
-
     def test_post_init(self):
-        @dataclass(slots=True)
+        @dataclass
         class A:
             x: int
-            s: str | None = None
+            s: Optional[str] = None
 
-        @dataclass(slots=True)
+        @dataclass
         class B(A):
             x: float
 
             def __post_init__(self):
                 super(B, self).__init__(x=self.x, s="s")
 
-        b = B(x=1.1)
-        assert b.x == 1.1
+        b = B(x="1.1")
+        assert b.x == 1
         assert b.s == "s"
+
+    def test_default_factory(self):
+        @dataclass
+        class M:
+            i: int = field(default_factory=lambda: 1)
+
+        assert M().i == 1
+
+    def test_slots(self):
+        @dataclass(slots=True)
+        class D:
+            i: int
+            s: str
+            b: bool = True
+
+        assert D.__slots__ == ("i", "s", "b", "__cwtch_fields_set__")
+        assert D(i="1", s=1).__slots__ == ("i", "s", "b", "__cwtch_fields_set__")
+        assert D(i="1", s=1).i == 1
+        assert D(i="1", s=1).s == "1"
 
 
 class TestView:
     def test_view(self):
         @dataclass
-        class A:
+        class M:
             i: int
-            j: int
             s: str
             b: bool
-            l: list[int]
+            l: Optional[list[int]] = None
 
-            @view(include={"i", "j"})
-            class V1:
-                j: int = 0
+        @view
+        class V1(M):
+            pass
 
-            @view(exclude={"s", "b", "l"})
-            class V2:
-                j: int = 0
+        @view(include={"i"})
+        class V2(M):
+            i: int = 0
 
-            @view
-            class V3:
-                f: float
+        @view(exclude={"s", "b", "l"})
+        class V3(M):
+            i: int = 0
 
-            def foo(self):
-                pass
+        @view(include={"i", "f"})
+        class V4(M):
+            f: float = 0.1
 
-        assert A.V1
-        assert A.V1.__cwtch_view_name__ == "V1"
-        assert A.V1.__cwtch_view_base__ == A
-        assert A.V1.__annotations__ == {"j": int}
+        assert M.__annotations__ == {"i": int, "s": str, "b": bool, "l": Optional[list[int]]}
+        assert list(M.__cwtch_fields__.keys()) == ["i", "s", "b", "l"]
 
-        assert A.V2
-        assert A.V2.__cwtch_view_name__ == "V2"
-        assert A.V2.__cwtch_view_base__ == A
-        assert A.V2.__annotations__ == {"j": int}
+        assert M.V1
+        assert M.V1.__cwtch_view_name__ == "V1"
+        assert M.V1.__cwtch_view_base__ == M
+        assert id(M.V1.__annotations__) != id(M.__annotations__)
+        assert M.V1.__annotations__ == {}
+        assert id(M.V1.__cwtch_fields__) != id(M.__cwtch_fields__)
+        assert M.V1.__cwtch_fields__ == M.__cwtch_fields__
 
-        assert A.V3
-        assert A.V3.__cwtch_view_name__ == "V3"
-        assert A.V3.__cwtch_view_base__ == A
-        assert A.V3.__annotations__ == {"f": float}
+        assert M.V2
+        assert M.V2.__cwtch_view_name__ == "V2"
+        assert M.V2.__cwtch_view_base__ == M
+        assert id(M.V2.__annotations__) != id(M.__annotations__)
+        assert M.V2.__annotations__ == {"i": int}
+        assert id(M.V2.__cwtch_fields__) != id(M.__cwtch_fields__)
+        assert list(M.V2.__cwtch_fields__.keys()) == ["i"]
+        assert M.V2.__cwtch_fields__["i"].name == "i"
+        assert M.V2.__cwtch_fields__["i"].type == int
+        assert M.V2.__cwtch_fields__["i"].default == 0
+        assert M.V2.__cwtch_fields__["i"].default_factory == _MISSING
+        assert M.V2.__cwtch_fields__["i"].init == True
+        assert M.V2.__cwtch_fields__["i"].repr == True
+        assert M.V2.__cwtch_fields__["i"].metadata == {}
 
-        aa = A(i="1", j="2", s="a", b="n", l=["1", "2"])
-        assert aa.i == 1
-        assert aa.j == 2
-        assert aa.V1
+        assert M.V3
+        assert M.V3.__cwtch_view_name__ == "V3"
+        assert M.V3.__cwtch_view_base__ == M
+        assert id(M.V3.__annotations__) != id(M.__annotations__)
+        assert M.V3.__annotations__ == {"i": int}
+        assert id(M.V3.__cwtch_fields__) != id(M.__cwtch_fields__)
+        assert list(M.V3.__cwtch_fields__.keys()) == ["i"]
+        assert M.V3.__cwtch_fields__["i"].name == "i"
+        assert M.V3.__cwtch_fields__["i"].type == int
+        assert M.V3.__cwtch_fields__["i"].default == 0
+        assert M.V3.__cwtch_fields__["i"].default_factory == _MISSING
+        assert M.V3.__cwtch_fields__["i"].init == True
+        assert M.V3.__cwtch_fields__["i"].repr == True
+        assert M.V3.__cwtch_fields__["i"].metadata == {}
 
-        v1 = aa.V1()
+        assert M.V4
+        assert M.V4.__cwtch_view_name__ == "V4"
+        assert M.V4.__cwtch_view_base__ == M
+        assert id(M.V4.__annotations__) != id(M.__annotations__)
+        assert M.V4.__annotations__ == {"f": float}
+        assert id(M.V4.__cwtch_fields__) != id(M.__cwtch_fields__)
+        assert list(M.V4.__cwtch_fields__.keys()) == ["i", "f"]
+        assert M.V4.__cwtch_fields__["i"].name == "i"
+        assert M.V4.__cwtch_fields__["i"].type == int
+        assert M.V4.__cwtch_fields__["i"].default == _MISSING
+        assert M.V4.__cwtch_fields__["i"].default_factory == _MISSING
+        assert M.V4.__cwtch_fields__["i"].init == True
+        assert M.V4.__cwtch_fields__["i"].repr == True
+        assert M.V4.__cwtch_fields__["i"].metadata == {}
+
+        m = M(i="1", s=1, b="n", l=["1", "2"])
+        assert m.i == 1
+        assert m.s == "1"
+        assert m.b is False
+        assert m.l == [1, 2]
+        assert m.V1
+        assert asdict(m) == {"i": 1, "s": "1", "b": False, "l": [1, 2]}
+
+        v1 = m.V1()
         assert v1.__cwtch_view_name__ == "V1"
-        assert v1.__cwtch_view_base__ == A
+        assert v1.__cwtch_view_base__ == M
         assert v1.i == 1
-        assert v1.j == 2
+        assert v1.s == "1"
+        assert v1.b is False
+        assert v1.l == [1, 2]
+        assert asdict(v1) == {"i": 1, "s": "1", "b": False, "l": [1, 2]}
 
-        v2 = aa.V2()
+        v2 = m.V2()
         assert v2.__cwtch_view_name__ == "V2"
-        assert v2.__cwtch_view_base__ == A
+        assert v2.__cwtch_view_base__ == M
         assert v2.i == 1
-        assert v2.j == 2
+        with pytest.raises(AttributeError):
+            v2.s
+        with pytest.raises(AttributeError):
+            v2.b
+        with pytest.raises(AttributeError):
+            v2.l
+        assert asdict(v2) == {"i": 1}
 
-        assert asdict(v1) == asdict(v2) == {"i": 1, "j": 2}
+        v3 = m.V3()
+        assert v3.__cwtch_view_name__ == "V3"
+        assert v3.__cwtch_view_base__ == M
+        assert v3.i == 1
+        with pytest.raises(AttributeError):
+            v3.s
+        with pytest.raises(AttributeError):
+            v3.b
+        with pytest.raises(AttributeError):
+            v3.l
+        assert asdict(v3) == {"i": 1}
 
-        v2 = A.V2(i=1)
-        assert v2.i == 1
-        assert v2.j == 0
-        assert asdict(v2) == {"i": 1, "j": 0}
+        v4 = m.V4()
+        assert v4.__cwtch_view_name__ == "V4"
+        assert v4.__cwtch_view_base__ == M
+        assert v4.i == 1
+        assert v4.f == 0.1
+        with pytest.raises(AttributeError):
+            v4.s
+        with pytest.raises(AttributeError):
+            v4.b
+        with pytest.raises(AttributeError):
+            v4.l
+        assert asdict(v4) == {"i": 1, "f": 0.1}
 
-        v3 = A.V3(i=1, j=2, s="a", b=False, l=[], f=1.1)
-
-    def test_ignore_extra(self):
+    def test_extra(self):
         @dataclass
-        class A:
+        class M:
             i: int
 
-            @view(ignore_extra=True)
-            class V:
-                pass
+        @view
+        class V1(M):
+            pass
 
-        v = A.V(i="1", s="a", b="n")
-        assert v.i == 1
+        @view(extra="forbid")
+        class V2(M):
+            pass
+
+        v1 = M.V1(i="1", b="n")
+        assert v1.i == 1
+
+        with pytest.raises(TypeError, match=re.escape("V2.__init__() got an unexpected keyword argument 'b'")):
+            v2 = M.V2(i="1", b="n")
 
     def test_validate(self):
         @dataclass
-        class A:
+        class M:
             i: int
+            b: bool
 
-            @view
-            class V1:
-                pass
+        @view
+        class V1(M):
+            b: bool = field(validate=False)
 
-            @view(validate=False)
-            class V2:
-                pass
+        @view(validate=False)
+        class V2(M):
+            b: bool = field(validate=True)
 
-        assert A.V1(i="1").i == 1
-        assert A.V2(i="1").i == "1"
+        assert M.V1(i="1", b=True).i == 1
+        assert M.V1(i="1", b="t").b == "t"
+        assert M.V2(i="1", b=True).i == "1"
+        assert M.V2(i="1", b="t").b == "t"
 
     def test_recursive(self):
         @dataclass
         class A:
-            i: int | None = None
-            s: str | None = None
+            i: Optional[int] = None
+            s: Optional[str] = None
 
-            @view(include={"i"})
-            class V:
-                pass
+        @view(name="V", include=["i"])
+        class AV(A):
+            pass
 
         @dataclass
         class B:
-            a: list[A] | None
+            a: Optional[list[A]]
 
-            @view(recursive=True)
-            class V:
-                pass
+        @view(name="V", recursive=True)
+        class BV(B):
+            pass
 
-        B(a=[A()])
-
-        assert B.__dataclass_fields__["a"].type == list[A] | None
-        assert B.V.__dataclass_fields__["a"].type == list[A.V] | None
+        assert B.__cwtch_fields__["a"].type == Optional[list[A]]
+        assert B.V.__cwtch_fields__["a"].type == Optional[list[A.V]]
 
     def test_inheritance(self):
-        @dataclass(slots=True)
+        @dataclass
         class A:
             i: int
 
-            @view
-            class V1:
-                pass
+        @view(name="V1")
+        class AV1(A):
+            pass
 
-        @dataclass(slots=True)
+        @view(name="V2")
+        class AV2(A):
+            pass
+
+        @dataclass
         class B(A):
             s: str
 
-            @view
-            class V2:
-                pass
+        @view(name="V2")
+        class BV2(B, A.V2):
+            pass
 
-
-class TestGeneric:
-    def test_generic(self):
-        @dataclass
-        class C(Generic[T]):
-            x: T
-
-            @view
-            class V1(Generic[F]):
-                y: F
-
-            @view(exclude={"x"})
-            class V2:
-                y: float
-
-            @view(exclude={"x"})
-            class V3(Generic[F]):
-                y: F
-
-            @view
-            class V4:
-                x: T = 0
-
-            @view
-            class V5(V4):
-                pass
-
-        assert C[int](x="1").x == 1
-        assert C.V1[int, float](x="1", y="2.2").x == 1
-        assert C.V1[int, float](x="1", y="2.2").y == 2.2
-        assert C.V2(y="2.2").y == 2.2
-        assert C.V3[float](y="2.2").y == 2.2
-        assert C.V4[int](x="1").x == 1
-        assert C.V4[int]().x == 0
-        assert C.V5[int](x="1").x == 1
-        assert C.V5[int]().x == 0
-
-    def test_inheritance(self):
-        @dataclass(slots=True)
-        class A(Generic[T, F]):
-            a: T
-            b: Type[T] = T
-            c: T = field(default_factory=T)
-            d: T
-            f: F
-
-            @view
-            class V1:
-                d: str
-
-            @view
-            class V2:
-                a: float = field(default_factory=T)
-
-        @dataclass(slots=True)
-        class B(A[int, float]):
-            d: bool
-            e: T
-
-            @view
-            class V2(A.V2):
-                d: float
-                f: float = 1.1
-
-        assert A.V1.__annotations__ == {"d": str}
-        assert A.V2.__annotations__ == {"a": float}
-
-        assert B.V1.__annotations__ == {}
-        assert B.V2.__annotations__ == {"d": float, "f": float}
-
-        assert B.__dataclass_fields__["a"].type == int
-        assert B.__dataclass_fields__["a"].default == MISSING
-        assert B.__dataclass_fields__["a"].default_factory == MISSING
-        assert B.__dataclass_fields__["b"].type == Type[int]
-        assert B.__dataclass_fields__["b"].default == int
-        assert B.__dataclass_fields__["b"].default_factory == MISSING
-        assert B.__dataclass_fields__["c"].type == int
-        assert B.__dataclass_fields__["c"].default == MISSING
-        assert B.__dataclass_fields__["c"].default_factory == int
-        assert B.__dataclass_fields__["d"].type == bool
-        assert B.__dataclass_fields__["d"].default == MISSING
-        assert B.__dataclass_fields__["d"].default_factory == MISSING
-        assert B.__dataclass_fields__["e"].type == T
-        assert B.__dataclass_fields__["e"].default == MISSING
-        assert B.__dataclass_fields__["e"].default_factory == MISSING
-        assert B.__dataclass_fields__["f"].type == float
-        assert B.__dataclass_fields__["f"].default == MISSING
-        assert B.__dataclass_fields__["f"].default_factory == MISSING
-
-        assert B.V1.__dataclass_fields__["a"].type == int
-        assert B.V1.__dataclass_fields__["a"].default == MISSING
-        assert B.V1.__dataclass_fields__["a"].default_factory == MISSING
-        assert B.V1.__dataclass_fields__["b"].type == Type[int]
-        assert B.V1.__dataclass_fields__["b"].default == int
-        assert B.V1.__dataclass_fields__["b"].default_factory == MISSING
-        assert B.V1.__dataclass_fields__["c"].type == int
-        assert B.V1.__dataclass_fields__["c"].default == MISSING
-        assert B.V1.__dataclass_fields__["c"].default_factory == int
-        assert B.V1.__dataclass_fields__["d"].type == bool
-        assert B.V1.__dataclass_fields__["d"].default == MISSING
-        assert B.V1.__dataclass_fields__["d"].default_factory == MISSING
-        assert B.V1.__dataclass_fields__["e"].type == T
-        assert B.V1.__dataclass_fields__["e"].default == MISSING
-        assert B.V1.__dataclass_fields__["e"].default_factory == MISSING
-        assert B.V1.__dataclass_fields__["f"].type == float
-        assert B.V1.__dataclass_fields__["f"].default == MISSING
-        assert B.V1.__dataclass_fields__["f"].default_factory == MISSING
-
-        assert B.V2.__dataclass_fields__["a"].type == float
-        assert B.V2.__dataclass_fields__["a"].default == MISSING
-        assert B.V2.__dataclass_fields__["a"].default_factory == int
-        assert B.V2.__dataclass_fields__["b"].type == Type[int]
-        assert B.V2.__dataclass_fields__["b"].default == int
-        assert B.V2.__dataclass_fields__["b"].default_factory == MISSING
-        assert B.V2.__dataclass_fields__["c"].type == int
-        assert B.V2.__dataclass_fields__["c"].default == MISSING
-        assert B.V2.__dataclass_fields__["c"].default_factory == int
-        assert B.V2.__dataclass_fields__["d"].type == float
-        assert B.V2.__dataclass_fields__["d"].default == MISSING
-        assert B.V2.__dataclass_fields__["d"].default_factory == MISSING
-        assert B.V2.__dataclass_fields__["e"].type == T
-        assert B.V2.__dataclass_fields__["e"].default == MISSING
-        assert B.V2.__dataclass_fields__["e"].default_factory == MISSING
-        assert B.V2.__dataclass_fields__["f"].type == float
-        assert B.V2.__dataclass_fields__["f"].default == 1.1
-        assert B.V2.__dataclass_fields__["f"].default_factory == MISSING
+        assert issubclass(B, A)
+        assert B.V1
+        assert B.V2
+        assert not issubclass(B.V1, A.V1)
+        assert issubclass(B.V2, A.V2)
 
 
 class TestJsonSchema:
@@ -1430,9 +932,9 @@ class TestJsonSchema:
             b: list[F]
 
         assert make_json_schema(GenericModel[int, str]) == (
-            {"$ref": "#/$defs/GenericModel"},
+            {"$ref": "#/$defs/GenericModel[int, str]"},
             {
-                "GenericModel": {
+                "GenericModel[int, str]": {
                     "type": "object",
                     "properties": {"a": {"type": "integer"}, "b": {"type": "array", "items": {"type": "string"}}},
                     "required": ["a", "b"],
@@ -1441,8 +943,8 @@ class TestJsonSchema:
         )
 
     def test_json_value_metadata(self):
-        JsonList = Annotated[list, JsonValue()]
-        JsonDict = Annotated[dict, JsonValue()]
+        JsonList = Annotated[list, JsonLoads()]
+        JsonDict = Annotated[dict, JsonLoads()]
 
         @dataclass
         class M:
@@ -1462,13 +964,3 @@ def test_validate_call():
     assert validate_args(foo, ("a", "1"), {}) == (("a", 1), {})
     with pytest.raises(TypeError):
         validate_args(foo, ("a",), {"i": "a"})
-
-
-def test_get_current_parameters():
-    @dataclass
-    class M(Generic[T]):
-        v: T = field(default_factory=lambda: get_current_parameters()[T]())
-
-    M[int]().v == 0
-    M[float]().v == 0.0
-    M[str]().v == ""

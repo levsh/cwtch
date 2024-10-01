@@ -61,13 +61,11 @@ def test_model():
 
     m = M(url="http://localhost", secret="secret", secret_url="http://user:pass@localhost")
 
-    assert str(m) == (
-        "test_model.<locals>.M"
-        "(url=Url(http://localhost), secret=SecretStr(***), secret_url=SecretUrl(http://***:***@localhost))"
+    assert (
+        str(m) == "M(url=Url(http://localhost), secret=SecretStr(***), secret_url=SecretUrl(http://***:***@localhost))"
     )
-    assert repr(m) == (
-        "test_model.<locals>.M"
-        "(url=Url(http://localhost), secret=SecretStr(***), secret_url=SecretUrl(http://***:***@localhost))"
+    assert (
+        repr(m) == "M(url=Url(http://localhost), secret=SecretStr(***), secret_url=SecretUrl(http://***:***@localhost))"
     )
     assert (
         str(asdict(m))

@@ -1,31 +1,308 @@
-import dataclasses
 import functools
 import json
 import os
 import typing
-from dataclasses import MISSING, Field, _is_classvar
-from dataclasses import fields as dataclasses_fields
-from dataclasses import is_dataclass, make_dataclass
-from inspect import _empty, signature
-from types import UnionType
-from typing import Callable, Generic, Type, TypeVar, Union, cast
 
-from cwtch.core import _asdict, _cache, _class_getitem, _validate_value_using_validator, get_validator, validate_value
+from collections.abc import Sequence
+from copy import deepcopy
+from inspect import _empty, signature
+from types import UnionType, new_class
+from typing import Any, Callable, ClassVar, Generic, Literal, Type, Union, cast
+
+import rich.repr
+
+from cwtch.config import EXTRA, HANDLE_CIRCULAR_REFS, RECURSIVE, SHOW_INPUT_VALUE_ON_ERROR, VALIDATE
+from cwtch.core import CACHE
+from cwtch.core import asdict as _asdict
+from cwtch.core import get_validator, validate_value, validate_value_using_validator
 from cwtch.errors import ValidationError
-from cwtch.types import UNSET, Unset
+from cwtch.types import _MISSING, UNSET, Missing, Unset
+
+
+def is_classvar(tp) -> bool:
+    return getattr(tp, "__origin__", tp) is ClassVar
+
+
+def is_cwtch_model(cls) -> bool:
+    return bool(getattr(cls, "__cwtch_model__", None) and not getattr(cls, "__cwtch_view__", None))
+
+
+def is_cwtch_view(cls) -> bool:
+    return bool(getattr(cls, "__cwtch_model__", None) and getattr(cls, "__cwtch_view__", None))
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+@rich.repr.auto
+class Field:
+    def __init__(
+        self,
+        *,
+        default=_MISSING,
+        default_factory: Missing[Callable] = _MISSING,
+        init: bool = True,
+        repr: bool = True,
+        validate: bool = True,
+        metadata: Unset[dict] = UNSET,
+    ):
+        self.name: str = cast(str, None)
+        self.type: Any = cast(Any, None)
+        self.default: Any = default
+        self.default_factory = default_factory
+        self.init = init
+        self.repr = repr
+        self.validate = validate
+        self.metadata = {} if metadata is UNSET else metadata
+
+    def __rich_repr__(self):
+        yield "name", self.name
+        yield "type", self.type
+        yield "default", self.default, True
+        yield "default_factory", self.default_factory, False
+        yield "init", self.init
+        yield "repr", self.repr
+        yield "validate", self.validate
+        yield "metadata", self.metadata
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Field):
+            return False
+        return (
+            self.name,
+            self.type,
+            self.default,
+            self.default_factory,
+            self.init,
+            self.repr,
+            self.validate,
+            self.metadata,
+        ) == (
+            other.name,
+            other.type,
+            other.default,
+            other.default_factory,
+            other.init,
+            other.repr,
+            other.validate,
+            other.metadata,
+        )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def field(
+    default=_MISSING,
+    *,
+    default_factory: Missing[Callable] = _MISSING,
+    init: bool = True,
+    repr: bool = True,
+    validate: bool = True,
+    metadata: Unset[dict] = UNSET,
+) -> Field | Any:
+    return Field(
+        default=default,
+        default_factory=default_factory,
+        init=init,
+        repr=repr,
+        validate=validate,
+        metadata=metadata,
+    )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def dataclass(
+    cls=None,
+    *,
+    slots: bool = False,
+    env_prefix: Unset[str | Sequence[str]] = UNSET,
+    env_source: Unset[Callable] = UNSET,
+    validate: Unset[bool] = UNSET,
+    show_input_value_on_error: Unset[bool] = UNSET,
+    extra: Unset[Literal["ignore", "forbid"]] = UNSET,
+    repr: bool = True,
+    eq: bool = True,
+    recursive: Unset[bool | Sequence[str]] = UNSET,
+    handle_circular_refs: Unset[bool] = UNSET,
+):
+    """
+    Args:
+        slots: if true, __slots__ attribute will be generated
+            and new class will be returned instead of the original one.
+            If __slots__ is already defined in the class, then TypeError is raised.
+        env_prefix: prefix(or list of prefixes) for environment variables.
+        env_source: environment variables source factory.
+        validate: validate or not fields.
+        extra: ignore or forbid extra arguments passed to init.
+        repr: if true, a __rich_repr__ method will be generated and rich.repr.auto decorator applied to the class.
+        eq: if true, an __eq__ method will be generated.
+            This method compares the class as if it were a tuple of its fields, in order.
+            Both instances in the comparison must be of the identical type.
+        recursive: ...
+        handle_circular_refs: handle or not circular refs.
+    """
+
+    if validate is UNSET:
+        validate = VALIDATE
+    if show_input_value_on_error is UNSET:
+        show_input_value_on_error = SHOW_INPUT_VALUE_ON_ERROR
+    if extra is UNSET:
+        extra = EXTRA
+    if recursive is UNSET:
+        recursive = RECURSIVE
+    if handle_circular_refs is UNSET:
+        handle_circular_refs = HANDLE_CIRCULAR_REFS
+
+    def wrapper(
+        cls,
+        slots=slots,
+        env_prefix=env_prefix,
+        env_source=env_source,
+        validate=validate,
+        extra=extra,
+        repr=repr,
+        eq=eq,
+        recursive=recursive,
+        handle_circular_refs=handle_circular_refs,
+    ):
+        return _build(
+            cls,
+            slots,
+            cast(
+                Unset[Sequence[str]],
+                env_prefix if env_prefix is UNSET or isinstance(env_prefix, (list, tuple, set)) else [env_prefix],
+            ),
+            env_source,
+            validate,
+            extra,
+            repr,
+            eq,
+            recursive,
+            handle_circular_refs,
+        )
+
+    if cls is None:
+        return wrapper
+
+    return wrapper(cls)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def view(
+    view_cls=None,
+    *,
+    name: Unset[str] = UNSET,
+    include: Unset[Sequence[str]] = UNSET,
+    exclude: Unset[Sequence[str]] = UNSET,
+    slots: Unset[bool] = UNSET,
+    env_prefix: Unset[str | Sequence[str]] = UNSET,
+    env_source: Unset[Callable] = UNSET,
+    validate: Unset[bool] = UNSET,
+    extra: Unset[Literal["ignore", "forbid"]] = UNSET,
+    repr: Unset[bool] = UNSET,
+    eq: Unset[bool] = UNSET,
+    recursive: Unset[bool | Sequence[str]] = UNSET,
+    handle_circular_refs: Unset[bool] = UNSET,
+):
+    """
+    Args:
+        name: view name.
+        include: list of fields to include in view.
+        exclude: list of fields to exclude from view.
+        slots: if true, __slots__ attribute will be generated
+            and new class will be returned instead of the original one.
+            If __slots__ is already defined in the class, then TypeError is raised.
+            If UNSET value from base view model will be used.
+        env_prefix: prefix(or list of prefixes) for environment variables.
+            If UNSET value from base view model will be used.
+        env_source: environment variables source factory.
+            If UNSET value from base view model will be used.
+        validate: validate or not fields.
+            If UNSET value from base view model will be used.
+        extra: ignore or forbid extra arguments passed to init.
+            If UNSET value from base view model will be used.
+        repr: if true, a __rich_repr__ method will be generated and rich.repr.auto decorator applied to the class.
+            If UNSET value from base view model will be used.
+        eq: if true, an __eq__ method will be generated.
+            This method compares the class as if it were a tuple of its fields, in order.
+            Both instances in the comparison must be of the identical type.
+            If UNSET value from base view model will be used.
+        recursive: ...
+        handle_circular_refs: handle or not circular refs.
+            If UNSET value from base view model will be used.
+    """
+
+    def wrapper(
+        view_cls,
+        *,
+        name=name,
+        include=include,
+        exclude=exclude,
+        slots=slots,
+        env_prefix=env_prefix,
+        env_source=env_source,
+        validate=validate,
+        extra=extra,
+        repr=repr,
+        eq=eq,
+        recursive=recursive,
+        handle_circular_refs=handle_circular_refs,
+    ):
+        if exclude and set(exclude) & view_cls.__annotations__.keys():  # type: ignore
+            raise ValueError(f"unable to exclude fields {list(set(exclude) & view_cls.__annotations__.keys())}")  # type: ignore
+
+        cls = next((x for x in view_cls.__bases__ if getattr(x, "__cwtch_model__", None)), None)
+
+        if not cls:
+            raise Exception("view class must inherit from cwtch model or view")
+
+        if getattr(cls, "__cwtch_view__", None):
+            cls = cls.__cwtch_view_base__
+
+        return _build_view(
+            cls,
+            view_cls,
+            name,
+            include,
+            exclude,
+            slots,
+            cast(
+                Unset[Sequence[str]],
+                env_prefix if env_prefix is UNSET or isinstance(env_prefix, (list, tuple, str)) else [env_prefix],
+            ),
+            env_source,
+            validate,
+            extra,
+            repr,
+            eq,
+            recursive,
+            handle_circular_refs,
+        )
+
+    if view_cls is None:
+        return wrapper
+
+    return wrapper(view_cls)
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 class ViewDesc:
-    def __init__(self, view: Type):
-        self.view = view
+    def __init__(self, view_cls: Type):
+        self.view_cls = view_cls
 
     def __get__(self, obj, owner=None):
-        view = self.view
+        view_cls = self.view_cls
         if obj:
-            return lambda: view(**{k: v for k, v in _asdict(obj, True).items() if k in view.__dataclass_fields__})
-        return view
+            # TODO
+            return lambda: view_cls(**{k: v for k, v in _asdict(obj).items() if k in view_cls.__cwtch_fields__})
+        return view_cls
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,666 +315,847 @@ def default_env_source() -> dict:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def instantiate_generic_dataclass(tp):
-    if (
-        (origin := getattr(tp, "__origin__", None))
-        and is_dataclass(origin)
+def is_generic(cls) -> bool:
+    return bool(
+        (origin := getattr(cls, "__origin__", None))
         and getattr(origin, "__parameters__", None)
-        and (args := getattr(tp, "__args__", None))
-    ):
-        return _make_generic_dataclass(origin, args)
-    raise TypeError("must be called with a subscripted dataclass type")
+        and getattr(cls, "__args__", None)
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 @functools.cache
-def _make_generic_dataclass(origin, args):
-    x = ", ".join(map(lambda x: x.strip("'"), (arg.__name__ for arg in args)))
-    return dataclass(
-        make_dataclass(
-            f"{origin.__name__}[{x}]",
-            [],
-            bases=(origin[*args],),
-            namespace=origin.__dict__,
-        ),
-        force_substitute=True,
-        **origin.__cwtch_params__,
+def _instantiate_generic(tp):
+    if not is_generic(tp):
+        raise TypeError("must be called with a subscripted dataclass type")
+
+    __origin__ = tp.__origin__
+
+    x = ", ".join(map(lambda x: x.strip("'"), (arg.__name__ for arg in tp.__args__)))
+    cls = type(
+        f"{__origin__.__name__}[{x}]",  # type: ignore
+        (__origin__,),  # type: ignore
+        {
+            "__annotations__": {k: v for k, v in __origin__.__annotations__.items()},
+        },
     )
 
+    fields_subst = _get_fields_substitution(tp)
 
-def _get_parameters(args):
-    return (
-        _make_generic_dataclass(origin, arg.__args__)
-        if (
-            (origin := getattr(arg, "__origin__", None))
-            and is_dataclass(origin)
-            and getattr(origin, "__parameters__", None)
-            and getattr(arg, "__args__", None)
-        )
-        else arg
-        for arg in args
-    )
+    if fields_subst:
+        cls.__cwtch_fields__ = _get_substituted_fields(cls, fields_subst)
+        cls.__annotations__ = _get_substituted_annotations(cls, fields_subst)
 
+    for k, v in cls.__cwtch_fields__.items():
+        setattr(cls, k, v)
 
-def _build(
-    cls,
-    env_prefixes: list[str] | None,
-    env_source: Callable | None,
-    validate: bool,
-    ignore_extra: bool,
-    handle_circular_refs: bool,
-    rebuild: bool = False,
-    force_substitute: bool = False,
-    **kwds,
-):
-    if kwds.get("kw_only") is False:
-        raise Exception("only keyword arguments are supported")
+    cls = cls.cwtch_rebuild()
 
-    kwds["kw_only"] = True
+    # build views
+    for f_k in __origin__.__dict__:
+        f_v = getattr(cls, f_k)
 
-    if not rebuild:
-        cls = dataclasses.dataclass(**kwds)(cls)
-
-    def copy_field(f) -> Field:
-        new_f = Field(f.default, f.default_factory, f.init, f.repr, f.hash, f.compare, f.metadata, f.kw_only)
-        new_f.name = f.name
-        new_f.type = f.type
-        new_f._field_type = f._field_type  # type: ignore
-        return new_f
-
-    def get_parameters_map(cls) -> dict | None:
-        if (
-            (origin := getattr(cls, "__origin__", None))
-            and (parameters := getattr(origin, "__parameters__", None))
-            and (args := getattr(cls, "__args__", None))
-        ):
-            return dict(zip(parameters, _get_parameters(args)))
-
-    def get_fields_substitution(cls, view_cls=None) -> dict:
-        field_subst = {"type": {}, "default": {}, "default_factory": {}}
-        items = getattr(cls, "__orig_bases__", ())[::-1]
-        if force_substitute:
-            items += (cls,)
-        for item in items:
-            origin = getattr(item, "__origin__", None)
-            if not is_dataclass(origin):
-                continue
-            parameters_map = get_parameters_map(item)
-            if not parameters_map:
-                continue
-            for f in dataclasses.fields(view_cls or origin):
-                for k in ("type", "default", "default_factory"):
-                    k_v = getattr(f, k)
-                    if hasattr(k_v, "__typing_subst__"):
-                        field_subst[k][f.name] = k_v.__typing_subst__(parameters_map[k_v])
-                    elif getattr(k_v, "__parameters__", None):
-                        field_subst[k][f.name] = k_v[*[parameters_map[tp] for tp in f.type.__parameters__]]
-        return field_subst
-
-    field_subst = get_fields_substitution(cls)
-
-    for f in dataclasses_fields(cls):
-        f_name = f.name
-        if f_name in cls.__annotations__:
+        if not is_cwtch_view(f_v):
             continue
+
+        bases: tuple[Type[Any], ...] = (f_v,)
+
+        if Generic in f_v.__bases__:
+            bases += (Generic[*f_v.__parameters__],)
+
+        view_cls = new_class(
+            f_v.__name__,
+            bases,
+            exec_body=lambda ns: ns.update(
+                {f_name: f.default for f_name, f in f_v.__cwtch_fields__.items() if f.default is not _MISSING},
+            ),
+        )
+        view_cls.__annotations__ = {k: v for k, v in f_v.__annotations__.items()}
+
+        if f_v.__parameters__:
+            view_fields_subst = {k: v for k, v in fields_subst.items()}
+            for k, v in _get_fields_substitution(cls, exclude_params=f_v.__parameters__).items():
+                view_fields_subst[k].update(v)
+        else:
+            view_fields_subst = fields_subst
+
+        if view_fields_subst:
+            view_cls.__cwtch_fields__ = _get_substituted_fields(f_v, view_fields_subst)
+            view_cls.__annotations__ = _get_substituted_annotations(f_v, view_fields_subst)
+
+        view_params = view_cls.__cwtch_view_params__
+
+        setattr(
+            cls,
+            f_k,
+            _build_view(
+                cls,
+                view_cls,
+                view_params.get("name", UNSET),
+                view_params.get("include", UNSET),
+                view_params.get("exclude", UNSET),
+                view_params.get("slots", UNSET),
+                view_params.get("env_prefix", UNSET),
+                view_params.get("env_source", UNSET),
+                view_params.get("validate", UNSET),
+                view_params.get("extra", UNSET),
+                view_params.get("repr", UNSET),
+                view_params.get("eq", UNSET),
+                view_params.get("recursive", UNSET),
+                view_params.get("handle_circular_refs", UNSET),
+            ),
+        )
+
+    return cls
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _make_class_getitem(__class__):
+
+    def __class_getitem__(cls, *args, **kwds):
+        result = super().__class_getitem__(*args, **kwds)  # type: ignore
+        if not hasattr(result, "__cwtch_instantiated__"):
+            result = _instantiate_generic(result)
+            setattr(result, "__cwtch_instantiated__", True)
+        return result
+
+    __class__.__class_getitem__ = __class_getitem__
+
+    return __class_getitem__
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_parameters_map(cls, exclude_params=None) -> dict:
+    parameters_map = {}
+    if is_generic(cls):
+        parameters_map = dict(
+            zip(
+                cls.__origin__.__parameters__,
+                (_instantiate_generic(arg) if is_generic(arg) else arg for arg in cls.__args__),
+            )
+        )
+    if exclude_params:
+        for param in exclude_params:
+            parameters_map.pop(param, None)
+    return parameters_map
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_fields_substitution(cls, exclude_params=None) -> dict[str, dict]:
+    fields_subst = {"type": {}, "default": {}, "default_factory": {}}
+    origin = getattr(cls, "__origin__", None)
+    items = getattr(origin, "__orig_bases__", ())[::-1] + (cls,)
+    for item in items:
+        if not hasattr(getattr(item, "__origin__", item), "__cwtch_model__"):
+            continue
+        origin = getattr(item, "__origin__", None)
+        parameters_map = _get_parameters_map(item, exclude_params=exclude_params)
+        if not parameters_map:
+            continue
+        for f_name, f in origin.__cwtch_fields__.items():  # type: ignore
+            for k in ("type", "default", "default_factory"):
+                k_v = getattr(f, k)
+                if hasattr(k_v, "__typing_subst__") and k_v in parameters_map:
+                    fields_subst[k][f_name] = k_v.__typing_subst__(parameters_map[k_v])
+                elif getattr(k_v, "__parameters__", None):
+                    fields_subst[k][f_name] = k_v[*[parameters_map[tp] for tp in k_v.__parameters__]]
+    return fields_subst
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_substituted_fields(cls, fields_subst: dict[str, dict]) -> dict[str, Field]:
+    fields = {k: v for k, v in cls.__cwtch_fields__.items()}
+    for f_name, f in fields.items():
         new_f = None
         for k in ("type", "default", "default_factory"):
-            subst = field_subst[k]
+            subst = fields_subst[k]
             if f_name not in subst:
                 continue
             if getattr(f, k) != subst[f_name]:
                 new_f = new_f or copy_field(f)
                 setattr(new_f, k, subst[f_name])
         if new_f:
-            cls.__dataclass_fields__[f_name] = new_f
+            fields[f_name] = new_f
+    return fields
 
-    fields = {f.name: f for f in dataclasses_fields(cls) if f.init is True}
 
-    if env_prefixes is not None:
-        for f in fields.values():
-            if (
-                f.metadata.get("cwtch", {}).get("env_var", True)
-                and f.default == MISSING
-                and f.default_factory == MISSING
-            ):
-                raise TypeError(f"environment field[{f.name}] should has default or default_factory value")
+# -------------------------------------------------------------------------------------------------------------------- #
 
-    def create_fn(cls, name, args, body, *, globals=None, locals=None):
-        if locals is None:
-            locals = {}
-        locals["__class__"] = cls
 
-        args = ", ".join(args)
-        body = "\n".join(f"        {line}" for line in body)
-        text = "\n".join(
-            [
-                f"    def {name}({args}):",
-                f"{body}",
-            ]
-        )
-        local_vars = ", ".join(locals.keys())
-        text = f"def __create_fn__({local_vars}):\n{text}\n    return {name}"
-        ns = {}
+def _get_substituted_annotations(cls, fields_subst: dict[str, dict]) -> dict:
+    annotations = {k: v for k, v in cls.__annotations__.items()}
+    subst = fields_subst["type"]
+    for k in cls.__annotations__:
+        if k not in subst:
+            continue
+        annotations[k] = subst[k]
+    return annotations
 
-        exec(text, globals, ns)
 
-        return ns["__create_fn__"](**locals)
+# -------------------------------------------------------------------------------------------------------------------- #
 
-    def create_init(cls, fields, validate, ignore_extra):
-        __dataclass_init__ = cls.__dict__.get("__dataclass_init__", cls.__init__)
 
-        sorted_fields = sorted(
-            fields.keys(),
-            key=lambda name: not (fields[name].default is MISSING and fields[name].default_factory is MISSING),
-        )
+def copy_field(f: Field) -> Field:
+    new_f = Field(
+        default=f.default,
+        default_factory=f.default_factory,
+        init=f.init,
+        repr=f.repr,
+        metadata=deepcopy(f.metadata),
+    )
+    new_f.name = f.name
+    new_f.type = f.type
+    return new_f
 
-        super_fields = {}
-        if cls.__base__ != object:
-            for item in cls.__mro__[::-1][1:]:
-                for f_name, f_type in getattr(item, "__annotations__", {}).items():
-                    if f_name not in cls.__annotations__:
-                        super_fields[f_name] = f_type
 
-        globals = {}
-        locals = {
-            "__MISSING": MISSING,
-            "__dataclasses_fields": dataclasses.fields,
-            "__cache_get": _cache.get,
-            "__validate": _validate_value_using_validator,
-            "__env_prefixes": env_prefixes,
-            "__env_source": env_source,
-            "__json_loads": json.loads,
-            "__builtins_id": id,
-            "__dataclass_init__": __dataclass_init__,
-            "__ValidationError": ValidationError,
-            "__JSONDecodeError": json.JSONDecodeError,
-        }
+# -------------------------------------------------------------------------------------------------------------------- #
 
-        args = ["__cwtch_self__"]
-        if handle_circular_refs:
-            args.append("_cwtch_cache_key=None")
 
-        if super_fields or fields:
-            args += ["*"]
+def _create_fn(cls, name, args, body, *, globals=None, locals=None):
+    if locals is None:
+        locals = {}
 
-        body = [
-            "if __cache_get().get(f'{__builtins_id(__cwtch_self__)}post_init'):",
+    locals["__class__"] = cls
+
+    args = ", ".join(args)
+    body = "\n".join(f"        {line}" for line in body)
+    text = "\n".join(
+        [
+            f"    def {name}({args}):",
+            f"{body}",
         ]
-        if __dataclass_init__:
-            x = ", ".join(f"{f_name}={f_name}" for f_name in fields)
-            body += [f"    __dataclass_init__(__cwtch_self__, {x})"]
+    )
+    local_vars = ", ".join(locals.keys())
+    text = f"def _create_fn({local_vars}):\n\n{text}\n\n    return {name}"
+    ns = {}
+
+    exec(text, globals, ns)
+
+    return ns["_create_fn"](**locals)
+
+
+def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_circular_refs):
+    globals = {}
+    locals = {
+        "_MISSING": _MISSING,
+        "_cache_get": CACHE.get,
+        "_validate": validate_value_using_validator,
+        "_env_prefixes": env_prefixes,
+        "_env_source": env_source or default_env_source,
+        "_json_loads": json.loads,
+        "_builtins_id": id,
+        "ValidationError": ValidationError,
+        "JSONDecodeError": json.JSONDecodeError,
+    }
+
+    fields = {k: v for k, v in fields.items() if v.init is True}
+
+    args = ["__cwtch_self__"]
+
+    if fields:
+        args.append("*")
+
+    if handle_circular_refs:
+        args.append("_cwtch_cache_key=None")
+
+    sorted_fields = sorted(
+        fields.keys(),
+        key=lambda name: not (fields[name].default is _MISSING and fields[name].default_factory is _MISSING),
+    )
+
+    body = [
+        "if _cache_get().get(f'{_builtins_id(__cwtch_self__)}post_init'):",
+        "    return",
+    ]
+
+    body += ["__cwtch_fields_set__ = ()"]
+
+    if env_prefixes is not UNSET:
         body += [
-            f"    return",
+            "env_source_data = _env_source()",
+            "env_data = {}",
+            "for f_name, f in __cwtch_self__.__cwtch_fields__.items():",
+            "   if env_var := f.metadata.get('env_var', True):",
+            "       for env_prefix in _env_prefixes:",
+            "           if isinstance(env_var, str):",
+            "               key = env_var",
+            "           else:",
+            "               key = f'{env_prefix}{f_name}'.upper()",
+            "           if key in env_source_data:",
+            "               try:",
+            "                   env_data[f_name] = _json_loads(env_source_data[key])",
+            "               except JSONDecodeError:",
+            "                   env_data[f_name] = env_source_data[key]",
+            "               break",
         ]
 
-        if env_prefixes is not None:
+    if fields:
+        indent = ""
+        if handle_circular_refs:
             body += [
-                "env_source_data = __env_source()",
-                "env_data = {}",
-                "for f in __dataclasses_fields(__cwtch_self__):",
-                "   metadata = f.metadata.get('cwtch', {})",
-                "   if env_var := metadata.get('env_var', True):",
-                "       for env_prefix in __env_prefixes:",
-                "           if isinstance(env_var, str):",
-                "               key = env_var",
-                "           else:",
-                "               key = f'{env_prefix}{f.name}'.upper()",
-                "           if key in env_source_data:",
-                "               try:",
-                "                   env_data[f.name] = __json_loads(env_source_data[key])",
-                "               except __JSONDecodeError:",
-                "                   env_data[f.name] = env_source_data[key]",
-                "               break",
+                "if _cwtch_cache_key is not None:",
+                "    _cache_get()[_cwtch_cache_key] = __cwtch_self__",
+                "try:",
+            ]
+            indent = " " * 4
+
+        for f_name in sorted_fields:
+            field = fields[f_name]
+            locals[f"f_{f_name}"] = field
+            locals[f"t_{f_name}"] = field.type
+            locals[f"d_{f_name}"] = field.default
+            locals[f"df_{f_name}"] = field.default_factory
+            args.append(f"{f_name}: t_{f_name} = _MISSING")  #
+            if env_prefixes is not UNSET:
+                body += [
+                    f"{indent}if {f_name} is _MISSING:",
+                    f"{indent}    if '{f_name}' in env_data:",
+                    f"{indent}        {f_name} = env_data['{f_name}']",
+                ]
+                if field.default is not _MISSING:
+                    body += [
+                        f"{indent}    else:",
+                        f"{indent}        {f_name} = d_{f_name}",
+                    ]
+                elif field.default_factory is not _MISSING:
+                    body += [
+                        f"{indent}    else:",
+                        f"{indent}        {f_name} = df_{f_name}()",
+                    ]
+                else:
+                    body += [
+                        f"{indent}    else:",
+                        f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
+                        f" missing required keyword-only argument: '{f_name}'\")",
+                    ]
+                body += [
+                    f"{indent}else:",
+                    f"{indent}    __cwtch_fields_set__ += ('{f_name}',)",
+                ]
+            else:
+                body += [
+                    f"{indent}if {f_name} is _MISSING:",
+                ]
+                if field.default is not _MISSING:
+                    body += [
+                        f"{indent}    {f_name} = d_{f_name}",
+                    ]
+                elif field.default_factory is not _MISSING:
+                    body += [
+                        f"{indent}    {f_name} = df_{f_name}()",
+                    ]
+                else:
+                    body += [
+                        f'{indent}    raise TypeError(f"{{__class__.__name__}}.__init__()'
+                        f" missing required keyword-only argument: '{f_name}'\")",
+                    ]
+                body += [
+                    f"{indent}else:",
+                    f"{indent}    __cwtch_fields_set__ += ('{f_name}',)",
+                ]
+            if validate and field.validate:
+                locals[f"v_{f_name}"] = get_validator(field.type)
+                body += [
+                    f"{indent}try:",
+                    f"{indent}    __cwtch_self__.{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
+                    f"{indent}except (TypeError, ValueError, ValidationError) as e:",
+                    f"    {indent}raise ValidationError({f_name}, __class__, [e], path=[f_{f_name}.name])",
+                ]
+            else:
+                body += [
+                    f"{indent}__cwtch_self__.{f_name} = {f_name}",
+                ]
+
+        body += [
+            f"{indent}__cwtch_self__.__cwtch_fields_set__ = __cwtch_fields_set__",
+        ]
+
+        if handle_circular_refs:
+            body += [
+                "finally:",
+                "    _cache_get().pop(_cwtch_cache_key, None)",
             ]
 
-        if fields:
-            indent = ""
-            if handle_circular_refs:
-                body += [
-                    "if _cwtch_cache_key is not None:",
-                    "   __cache_get()[_cwtch_cache_key] = __cwtch_self__",
-                    "try:",
-                ]
-                indent = " " * 4
+    else:
+        body = ["pass"]
 
-            for f_name in sorted_fields:
-                field = fields[f_name]
-                locals[f"field_{f_name}"] = field
-                locals[f"type_{f_name}"] = field.type
-                metadata = field.metadata.get("cwtch", {})
-                if field.default is not MISSING:
-                    locals[f"default_{f_name}"] = field.default
-                    args.append(f"{f_name}: type_{f_name} = default_{f_name}")
-                    if metadata.get("validate", validate):
-                        locals[f"validator_{f_name}"] = get_validator(field.type)
-                        body += [f"{indent}try:"]
-                        if env_prefixes is not None:
-                            body += [
-                                (
-                                    f"    {indent}{f_name} = "
-                                    f"__validate(env_data.get('{f_name}', {f_name}), type_{f_name}, validator_{f_name})"
-                                )
-                            ]
-                        else:
-                            body += [
-                                f"    {indent}{f_name} = __validate({f_name}, type_{f_name}, validator_{f_name})",
-                            ]
-                        body += [
-                            f"{indent}except (TypeError, ValueError, __ValidationError) as e:",
-                            f"    {indent}raise __ValidationError({f_name}, __class__, [e], path=[field_{f_name}.name])",
-                        ]
-                    elif env_prefixes is not None:
-                        body += [f"{indent}{f_name} = env_data.get('{f_name}', {f_name})"]
-                    else:
-                        body += [f"{indent}pass"]
-                elif field.default_factory is not MISSING:
-                    locals[f"default_factory_{f_name}"] = field.default_factory
-                    args.append(f"{f_name}: type_{f_name} = __MISSING")
-                    if metadata.get("validate", validate):
-                        locals[f"validator_{f_name}"] = get_validator(field.type)
-                        body += [f"{indent}try:"]
-                        if env_prefixes is not None:
-                            body += [
-                                f"    {indent}if {f_name} is __MISSING:",
-                                f"        {indent}if '{f_name}' in env_data:",
-                                f"            {indent}{f_name} = env_data['{f_name}']",
-                                f"        {indent}else:",
-                                f"            {indent}{f_name} = default_factory_{f_name}()",
-                            ]
-                        else:
-                            body += [
-                                f"    {indent}if {f_name} is __MISSING:",
-                                f"        {indent}{f_name} = default_factory_{f_name}()",
-                            ]
-                        body += [
-                            f"    {indent}{f_name} = __validate({f_name}, type_{f_name}, validator_{f_name})",
-                            f"{indent}except (TypeError, ValueError, __ValidationError) as e:",
-                            f"    {indent}raise __ValidationError({f_name}, __class__, [e], path=[field_{f_name}.name])",
-                        ]
-                    elif env_prefixes is not None:
-                        body += [f"{indent}{f_name} = env_data.get('{f_name}', {f_name})"]
-                    else:
-                        body += [f"{indent}pass"]
-                else:
-                    args.append(f"{f_name}: type_{f_name} = __MISSING")
-                    if metadata.get("validate", validate):
-                        locals[f"validator_{f_name}"] = get_validator(field.type)
-                        body += [f"{indent}try:"]
-                        body += [
-                            f"{indent}    if {f_name} == __MISSING:",
-                            (
-                                f'{indent}        raise TypeError(f"{{__class__.__qualname__}}.__init__()'
-                                f" missing required keyword-only argument: '{f_name}'\")"
-                            ),
-                        ]
-                        if env_prefixes is not None:
-                            body += [
-                                (
-                                    f"    {indent}{f_name} = "
-                                    f"__validate(env_data.get('{f_name}', {f_name}), type_{f_name}, validator_{f_name})"
-                                )
-                            ]
-                        else:
-                            body += [
-                                f"    {indent}{f_name} = __validate({f_name}, type_{f_name}, validator_{f_name})",
-                            ]
-                        body += [
-                            f"{indent}except (TypeError, ValueError, __ValidationError) as e:",
-                            f"    {indent}raise __ValidationError({f_name}, __class__, [e], path=[field_{f_name}.name])",
-                        ]
-                    elif env_prefixes is not None:
-                        body += [f"{indent}{f_name} = env_data.get('{f_name}', {f_name})"]
-                    else:
-                        body += [f"{indent}pass"]
+    body += [
+        "if '__post_init__' in __class__.__dict__:",
+        "    try:",
+        "        __cwtch_self__.__post_init__()",
+        "    except ValueError as e:",
+        "        raise ValidationError(",
+        "            __cwtch_self__,",
+        "            __cwtch_self__.__class__,",
+        "            [e],",
+        "            path=[f'{__cwtch_self__.__class__.__name__}.__post_init__']",
+        "        )",
+    ]
 
-            if handle_circular_refs:
-                body += [
-                    "finally:",
-                    "    __cache_get().pop(_cwtch_cache_key, None)",
-                ]
-
-            if __dataclass_init__:
-                x = ", ".join(f"{f_name}={f_name}" for f_name in fields)
-                body += ["try:"]
-                if ignore_extra:
-                    body += [f"    __dataclass_init__(__cwtch_self__, {x})"]
-                else:
-                    body += [f"    __dataclass_init__(__cwtch_self__, {x}, **__cwtch_kwds__)"]
-                body += [
-                    f"except TypeError as e:",
-                    f"    value = {{}}",
-                ]
-                for f_name in fields:
-                    body += [f"    value['{f_name}'] = {f_name}"]
-                body += [
-                    f"    raise __ValidationError(value, __class__, [e], path=[f'{{__class__.__name__}}.__init__'])"
-                ]
-
-        else:
-            body = ["pass"]
-
+    if extra == "ignore":
         args += ["**__cwtch_kwds__"]
 
-        setattr(cls, "__dataclass_init__", __dataclass_init__)
+    __init__ = _create_fn(cls, "__init__", args, body, globals=globals, locals=locals)
 
-        __init__ = create_fn(cls, "__init__", args, body, globals=globals, locals=locals)
+    __init__.__module__ = cls.__module__
+    __init__.__qualname__ = f"{cls.__name__}.__init__"
 
-        __init__.__module__ = __dataclass_init__.__module__
-        __init__.__qualname__ = __dataclass_init__.__qualname__
+    return __init__
 
-        return __init__
 
-    setattr(cls, "__init__", create_init(cls, fields, validate, ignore_extra))
+def _create_rich_repr(cls, fields):
+    globals = {}
+    locals = {}
 
-    def make_class_getitem(cls):
-        __class__ = cls
-        class_getitem = _class_getitem
+    fields = {k: v for k, v in fields.items() if v.repr is True}
 
-        def __class_getitem__(cls, parameters):
-            result = super().__class_getitem__(parameters)  # type: ignore
-            return class_getitem(cls, parameters, result)
+    args = ["__cwtch_self__"]
 
-        return __class_getitem__
+    body = []
 
-    setattr(cls, "__class_getitem__", classmethod(make_class_getitem(cls)))
+    if fields:
+        for f_name in fields:
+            body.append(f"yield '{f_name}', __cwtch_self__.{f_name}")
+    else:
+        body = ["pass"]
 
-    if hasattr(cls, "__post_init__"):
-        __dataclass_post_init__ = cls.__post_init__
+    __rich_repr__ = _create_fn(cls, "__rich_repr__", args, body, globals=globals, locals=locals)
 
-        def __post_init__(self):
-            cache = _cache.get()
-            key = f"{id(self)}post_init"
-            cache[key] = True
-            try:
-                __dataclass_post_init__(self)
-            except ValueError as e:
-                raise ValidationError(self, self.__class__, [e], path=[f"{cls.__name__}.__post_init__"])
-            finally:
-                cache.pop(key, None)
+    __rich_repr__.__module__ = cls.__module__
+    __rich_repr__.__qualname__ = f"{cls.__name__}.__rich_repr__"
 
-        __post_init__.__module__ = __dataclass_post_init__.__module__
-        __post_init__.__qualname__ = __dataclass_post_init__.__qualname__
+    return __rich_repr__
 
-        setattr(cls, "__post_init__", __post_init__)
 
-    def cwtch_update_forward_refs(localns, globalns):
-        resolve_types(cls, globalns=globalns, localns=localns)
-        _build(cls, env_prefixes, env_source, validate, ignore_extra, handle_circular_refs, rebuild=True, **kwds)
+def _create_eq(cls):
+    globals = {}
+    locals = {}
 
-    setattr(cls, "cwtch_update_forward_refs", staticmethod(cwtch_update_forward_refs))
+    args = ["__cwtch_self__", "other"]
 
-    def cwtch_rebuild():
-        _build(cls, env_prefixes, env_source, validate, ignore_extra, handle_circular_refs, rebuild=True, **kwds)
+    body = [
+        "if not hasattr(other, '__cwtch_model__') or __cwtch_self__.__class__ != other.__class__:",
+        "   return False",
+    ]
 
-    setattr(cls, "cwtch_rebuild", staticmethod(cwtch_rebuild))
+    body += [
+        "if not sorted(__cwtch_self__.__cwtch_fields__.keys()) == sorted(other.__cwtch_fields__.keys()):",
+        "    return False",
+        "l = [getattr(__cwtch_self__, f_name) for f_name in __cwtch_self__.__cwtch_fields__]",
+        "r = [getattr(other, f_name) for f_name in other.__cwtch_fields__]",
+        "return l == r",
+    ]
 
-    setattr(cls, "__cwtch_model__", True)
+    __eq__ = _create_fn(cls, "__eq__", args, body, globals=globals, locals=locals)
+
+    __eq__.__module__ = cls.__module__
+    __eq__.__qualname__ = f"{cls.__name__}.__eq__"
+
+    return __eq__
+
+
+def _build(
+    cls,
+    slots: bool,
+    env_prefix: Unset[str | Sequence[str]],
+    env_source: Unset[Callable],
+    validate: bool,
+    extra: Literal["ignore", "forbid"],
+    repr: bool,
+    eq: bool,
+    recursive: bool | Sequence[str],
+    handle_circular_refs: bool,
+    rebuild: bool = False,
+):
+    __bases__ = cls.__bases__
+    __annotations__ = cls.__annotations__
+    __dict__ = {k: v for k, v in cls.__dict__.items()}
+
+    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not is_classvar(v)}
+
+    __cwtch_fields__ = getattr(cls, "__cwtch_fields__", {})
+
+    for base in __bases__[::-1]:
+        if hasattr(base, "__cwtch_fields__"):
+            __cwtch_fields__.update({k: v for k, v in base.__cwtch_fields__.items() if k not in __cwtch_fields__})
+
+    for f_name, f_type in __annotations__.items():
+        f = defaults.get(f_name, _MISSING)
+        if not isinstance(f, Field):
+            f = Field(default=f)
+        f.name = f_name
+        f.type = f_type
+        __cwtch_fields__[f_name] = f
+
+    if env_prefix is not UNSET:
+        for f in __cwtch_fields__.values():
+            if f.metadata.get("env_var", True) and f.default == _MISSING and f.default_factory == _MISSING:
+                raise TypeError(f"environment field[{f.name}] should has default or default_factory value")
+
+    if not rebuild:
+        if slots:
+            if "__slots__" in __dict__:
+                raise TypeError(f"{cls.__name__} already specifies __slots__")
+            __dict__["__slots__"] = tuple(__cwtch_fields__.keys()) + ("__cwtch_fields_set__",)
+        __dict__.pop("__dict__", None)
+        cls = type(cls.__name__, cls.__bases__, __dict__)
+
+    if env_prefix is UNSET or isinstance(env_prefix, (list, tuple, str)):
+        env_prefixes = env_prefix
+    else:
+        env_prefixes = [env_prefix]
+
+    setattr(
+        cls,
+        "__init__",
+        _create_init(
+            cls,
+            __cwtch_fields__,
+            validate,
+            extra,
+            env_prefixes,
+            env_source,
+            handle_circular_refs,
+        ),
+    )
+
+    if repr:
+        setattr(cls, "__rich_repr__", _create_rich_repr(cls, __cwtch_fields__))
+        rich.repr.auto()(cls)  # type: ignore
+
+    if eq:
+        setattr(cls, "__eq__", _create_eq(cls))
+
+    if hasattr(cls, "__parameters__"):
+        setattr(cls, "__class_getitem__", classmethod(_make_class_getitem(cls)))
+
     setattr(cls, "__cwtch_handle_circular_refs__", handle_circular_refs)
 
-    # views
+    setattr(cls, "__cwtch_fields__", __cwtch_fields__)
 
-    def update_type(tp, view_names: list[str]):
+    def cwtch_rebuild(cls):
+        if not is_cwtch_model(cls):
+            raise Exception("not cwtch model")
+        return _build(
+            cls,
+            slots=slots,
+            env_prefix=env_prefix,
+            env_source=env_source,
+            validate=validate,
+            extra=extra,
+            repr=repr,
+            eq=eq,
+            recursive=recursive,
+            handle_circular_refs=handle_circular_refs,
+            rebuild=True,
+        )
+
+    setattr(cls, "cwtch_rebuild", classmethod(cwtch_rebuild))
+    cls.cwtch_rebuild.__func__.__qualname__ = "cwtch_rebuild"
+
+    def cwtch_update_forward_refs(cls, localns, globalns):
+        resolve_types(cls, globalns=globalns, localns=localns)
+
+    setattr(cls, "cwtch_update_forward_refs", classmethod(cwtch_update_forward_refs))
+    cls.cwtch_update_forward_refs.__func__.__qualname__ = "cwtch_update_forward_refs"
+
+    setattr(cls, "__cwtch_model__", True)
+
+    setattr(
+        cls,
+        "__cwtch_params__",
+        {
+            "slots": slots,
+            "env_prefix": env_prefix,
+            "env_source": env_source,
+            "validate": validate,
+            "extra": extra,
+            "repr": repr,
+            "eq": eq,
+            "recursive": recursive,
+            "handle_circular_refs": handle_circular_refs,
+        },
+    )
+
+    if rebuild:
+        for k in cls.__dict__:
+            v = getattr(cls, k)
+            if hasattr(v, "cwtch_rebuild"):
+                v.cwtch_rebuild()
+
+    if not rebuild:
+        # rebuild inherited views
+        for base in __bases__[::-1]:
+            for k in base.__dict__:
+                v = getattr(base, k)
+                if k in cls.__dict__ or not is_cwtch_view(v):
+                    continue
+                view_params = v.__cwtch_view_params__
+                setattr(
+                    cls,
+                    k,
+                    _build_view(
+                        cls,
+                        v,
+                        view_params.get("name", UNSET),
+                        view_params.get("include", UNSET),
+                        view_params.get("exclude", UNSET),
+                        view_params.get("slots", UNSET),
+                        view_params.get("env_prefix", UNSET),
+                        view_params.get("env_source", UNSET),
+                        view_params.get("validate", UNSET),
+                        view_params.get("extra", UNSET),
+                        view_params.get("repr", UNSET),
+                        view_params.get("eq", UNSET),
+                        view_params.get("recursive", UNSET),
+                        view_params.get("handle_circular_refs", UNSET),
+                    ),
+                )
+
+    return cls
+
+
+def _build_view(
+    cls,
+    view_cls,
+    name: Unset[str],
+    include: Unset[Sequence[str]],
+    exclude: Unset[Sequence[str]],
+    slots: Unset[bool],
+    env_prefix: Unset[str | Sequence[str]],
+    env_source: Unset[Callable],
+    validate: Unset[bool],
+    extra: Unset[Literal["ignore", "forbid"]],
+    repr: Unset[bool],
+    eq: Unset[bool],
+    recursive: Unset[bool | Sequence[str]],
+    handle_circular_refs: Unset[bool],
+    rebuild: bool = False,
+):
+    def update_type(tp, view_names: Sequence[str]):
         if getattr(tp, "__origin__", None) is not None:
             return tp.__class__(
                 update_type(getattr(tp, "__origin__", tp), view_names),
-                tp.__metadata__
-                if hasattr(tp, "__metadata__")
-                else tuple(update_type(arg, view_names) for arg in tp.__args__),
+                (
+                    tp.__metadata__
+                    if hasattr(tp, "__metadata__")
+                    else tuple(update_type(arg, view_names) for arg in tp.__args__)
+                ),
             )
         if isinstance(tp, UnionType):
-            return Union[*(update_type(arg, view_names) for arg in tp.__args__)]
+            return Union[*(update_type(arg, view_names) for arg in tp.__args__)]  # type: ignore
         if getattr(tp, "__cwtch_model__", None):
             for view_name in view_names:
                 if hasattr(tp, view_name):
                     return getattr(tp, view_name)
         return tp
 
-    cls_dataclass_fields = {k: v for k, v in cls.__dataclass_fields__.items()}
-    cls_fields = dataclasses_fields(cls)
+    __bases__ = view_cls.__bases__
+    __annotations__ = view_cls.__annotations__
+    __dict__ = {k: v for k, v in view_cls.__dict__.items()}
 
-    for view_cls in list(
-        {
-            k: v
-            for item in cls.__mro__[::-1][1:]
-            for k in item.__dict__
-            if hasattr((v := getattr(item, k)), "__cwtch_view_params__")
-        }.values()
+    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not is_classvar(v)}
+
+    if hasattr(view_cls, "__cwtch_fields__"):
+        __cwtch_fields__ = {k: copy_field(v) for k, v in view_cls.__cwtch_fields__.items()}
+    else:
+        __cwtch_fields__ = {}
+        for base in __bases__[::-1]:
+            if hasattr(base, "__cwtch_fields__"):
+                __cwtch_fields__.update({k: copy_field(v) for k, v in base.__cwtch_fields__.items()})
+
+    for f_name, f_type in __annotations__.items():
+        f = defaults.get(f_name, _MISSING)
+        if not isinstance(f, Field):
+            f = Field(default=f)
+        f.name = f_name
+        f.type = f_type
+        __cwtch_fields__[f_name] = f
+
+    __cwtch_params__ = view_cls.__cwtch_params__
+
+    __cwtch_view_params__ = {
+        "slots": __cwtch_params__["slots"],
+        "env_prefix": __cwtch_params__["env_prefix"],
+        "env_source": __cwtch_params__["env_source"],
+        "validate": __cwtch_params__["validate"],
+        "repr": __cwtch_params__["repr"],
+        "eq": __cwtch_params__["eq"],
+        "extra": __cwtch_params__["extra"],
+        "recursive": __cwtch_params__["recursive"],
+        "handle_circular_refs": __cwtch_params__["handle_circular_refs"],
+    }
+
+    if hasattr(view_cls, "__cwtch_view_params__"):
+        __cwtch_view_params__.update({k: v for k, v in view_cls.__cwtch_view_params__.items() if v != UNSET})
+    if name is not UNSET:
+        __cwtch_view_params__["name"] = name
+    if include is not UNSET:
+        __cwtch_view_params__["include"] = include
+    if exclude is not UNSET:
+        __cwtch_view_params__["exclude"] = exclude
+    if slots is not UNSET:
+        __cwtch_view_params__["slots"] = slots
+    if env_prefix is not UNSET:
+        __cwtch_view_params__["env_prefix"] = env_prefix
+    if env_source is not UNSET:
+        __cwtch_view_params__["env_source"] = env_source
+    if validate is not UNSET:
+        __cwtch_view_params__["validate"] = validate
+    if repr is not UNSET:
+        __cwtch_view_params__["repr"] = repr
+    if eq is not UNSET:
+        __cwtch_view_params__["eq"] = eq
+    if extra is not UNSET:
+        __cwtch_view_params__["extra"] = extra
+    if recursive is not UNSET:
+        __cwtch_view_params__["recursive"] = recursive
+    if handle_circular_refs is not UNSET:
+        __cwtch_view_params__["handle_circular_refs"] = handle_circular_refs
+
+    view_name = __cwtch_view_params__.get("name", view_cls.__name__)
+
+    include = __cwtch_view_params__.get("include", UNSET)
+    if include and (missing_fields := set(include) - __cwtch_fields__.keys()):
+        raise Exception(f"fields {list(missing_fields)} not present")
+
+    exclude = __cwtch_view_params__.get("exclude", UNSET)
+
+    __cwtch_fields__ = {
+        k: v
+        for k, v in __cwtch_fields__.items()
+        if (include is UNSET or k in include) and (exclude is UNSET or k not in exclude)
+    }
+
+    view_recursive = __cwtch_view_params__["recursive"]
+    if view_recursive:
+        view_names = view_recursive if isinstance(view_recursive, (list, tuple, set)) else [view_name]
+        for k, v in __cwtch_fields__.items():
+            v.type = update_type(v.type, view_names)
+            if k in view_cls.__annotations__:
+                view_cls.__annotations__[k] = v.type
+            if v.default_factory is not _MISSING:
+                v.default_factory = update_type(v.default_factory, view_names)  # type: ignore
+
+    if __cwtch_view_params__["env_prefix"] is UNSET or isinstance(
+        __cwtch_view_params__["env_prefix"], (list, tuple, str)
     ):
-        view_name = getattr(view_cls, "__cwtch_view_name__", view_cls.__name__)
-        view_params = view_cls.__cwtch_view_params__
-        for item in view_cls.__mro__[::-1][1:]:
-            if hasattr(item, "__cwtch_view_params__"):
-                view_params.update({k: v for k, v in item.__cwtch_view_params__.items() if v != UNSET})
-        include = view_params["include"]
-        exclude = view_params["exclude"]
-        view_validate = view_params["validate"]
-        if view_validate is UNSET:
-            view_validate = validate
-        view_ignore_extra = view_params["ignore_extra"]
-        if view_ignore_extra is UNSET:
-            view_ignore_extra = ignore_extra
-        recursive = view_params["recursive"]
-        if recursive is UNSET:
-            recursive = True
+        env_prefixes = __cwtch_view_params__["env_prefix"]
+    else:
+        env_prefixes = [__cwtch_view_params__["env_prefix"]]
 
-        view_kwds = {"init": True, "kw_only": True}
+    if not rebuild:
+        if __cwtch_view_params__["slots"]:
+            __slots__ = tuple(__cwtch_fields__.keys())
+            if "__slots__" in __dict__:
+                __slots__ += tuple(x for x in __dict__["__slots__"] if x not in __slots__)
+            __dict__["__slots__"] = __slots__
+        for f_name, f in __cwtch_fields__.items():
+            __dict__[f_name] = f
+        __dict__.pop("__dict__", None)
+        view_cls = type(view_cls.__name__, view_cls.__bases__, __dict__)
 
-        fields = {f.name: f for f in cls_fields}
-        for item in view_cls.__mro__[::-1][1:-1]:
-            for k in item.__annotations__:
-                fields[k] = item.__dataclass_fields__[k]
-        for k in cls.__annotations__:
-            fields[k] = cls_dataclass_fields[k]
-        for item in view_cls.__bases__[::-1]:
-            if hasattr(item, "__cwtch_view_params__") and item.__name__ in cls.__dict__:
-                for k in item.__annotations__:
-                    fields[k] = item.__dataclass_fields__[k]
-        if view_name in cls.__dict__ and view_cls.__annotations__:
-            for f in dataclasses_fields(dataclasses.dataclass(view_cls, **{**kwds, **view_kwds})):
-                fields[f.name] = f
-        fields = {
-            k: v
-            for k, v in fields.items()
-            if (include is UNSET or k in include) and (exclude is UNSET or k not in exclude)
-        }
-        fields = {k: copy_field(v) for k, v in fields.items()}
-
-        view_field_subst = get_fields_substitution(cls, view_cls=view_cls)
-
-        for f_name, f in fields.items():
-            for k in ("type", "default", "default_factory"):
-                subst = view_field_subst[k]
-                if f_name not in subst:
-                    continue
-                if getattr(f, k) != subst[f_name]:
-                    setattr(f, k, subst[f_name])
-
-        view_annotations = {k: v.type for k, v in fields.items()}
-
-        if recursive is not False:
-            view_names = recursive if isinstance(recursive, list) else [view_name]
-            for k, v in fields.items():
-                view_annotations[k] = v.type = update_type(v.type, view_names)
-                if v.default_factory:
-                    v.default_factory = update_type(v.default_factory, view_names)  # type: ignore
-
-        view_parameters = set()
-        for f in fields.values():
-            if type(f.type) == TypeVar:
-                view_parameters.add(f.type)
-            elif hasattr(f.type, "__parameters__"):
-                for p in f.type.__parameters__:
-                    view_parameters.add(p)
-        parameters = [p for p in getattr(cls, "__parameters__", []) if p in view_parameters]
-        for p in getattr(view_cls, "__parameters__", []):
-            if p in view_parameters and p not in parameters:
-                parameters.append(p)
-
-        for p in getattr(view_cls, "__parameters__", ()):
-            if p not in parameters:
-                parameters += (p,)
-
-        if parameters:
-
-            class ViewBase(Generic[*parameters]):
-                pass
-
-        else:
-
-            class ViewBase:
-                pass
-
-        for k, v in fields.items():
-            setattr(ViewBase, k, v)
-
-        ViewBase.__annotations__ = view_annotations
-        ViewBase = dataclasses.dataclass(ViewBase, **view_kwds)
-
-        if parameters:
-
-            class View(ViewBase, Generic[*parameters]):
-                __dataclass_fields__ = fields
-
-        else:
-
-            class View(ViewBase):
-                __dataclass_fields__ = fields
-
-        setattr(
-            View,
-            "__init__",
-            create_init(
-                View,
-                {f.name: f for f in dataclasses_fields(View) if f.init and not _is_classvar(f.type, typing)},
-                view_validate,
-                view_ignore_extra,
-            ),
-        )
-
-        if parameters:
-            setattr(View, "__class_getitem__", classmethod(make_class_getitem(View)))
-
-        View.__name__ = f"{cls.__name__}.{view_name}"
-        View.__qualname__ = view_cls.__qualname__
-        View.__module__ = view_cls.__module__
-        if view_name in cls.__dict__:
-            View.__annotations__ = view_cls.__annotations__
-        View.__cwtch_view__ = True  # type: ignore
-        View.__cwtch_view_base__ = cls  # type: ignore
-        View.__cwtch_view_name__ = view_name  # type: ignore
-        View.__cwtch_view_params__ = view_params  # type: ignore
-        View.__xxx__ = view_cls
-
-        setattr(cls, view_name, ViewDesc(View))
-
-    return cls
-
-
-def dataclass(
-    cls=None,
-    *,
-    env_prefix: str | list[str] | None = None,
-    env_source: Callable[[], dict] | None = None,
-    validate: bool = True,
-    ignore_extra: bool = False,
-    handle_circular_refs: bool = False,
-    **kwds,
-) -> Type | Callable[[Type], Type]:
-    """
-    Args:
-      env_prefix: prefix(or list of prefixes) for environment variables.
-      env_source: environment variables source factory.
-      ignore_extra: ignore extra arguments passed to init(default False).
-      handle_circular_refs: handle or not circular refs.
-      kwds: other dataclasses.dataclass arguments.
-    """
-
-    def wrapper(cls):
-        env_prefixes = None
-        if env_prefix is not None and not isinstance(env_prefix, list):
-            env_prefixes = [env_prefix]
-        else:
-            env_prefixes = env_prefix
-        cls = _build(
-            cls,
+    setattr(
+        view_cls,
+        "__init__",
+        _create_init(
+            view_cls,
+            __cwtch_fields__,
+            __cwtch_view_params__["validate"],
+            __cwtch_view_params__["extra"],
             env_prefixes,
-            env_source or default_env_source,
-            validate,
-            ignore_extra,
-            handle_circular_refs,
-            **kwds,
+            __cwtch_view_params__["env_source"],
+            __cwtch_view_params__["handle_circular_refs"],
+        ),
+    )
+
+    if __cwtch_view_params__["repr"]:
+        setattr(
+            view_cls,
+            "__rich_repr__",
+            _create_rich_repr(view_cls, __cwtch_fields__),
+        )
+        rich.repr.auto()(view_cls)  # type: ignore
+
+    if __cwtch_view_params__["eq"]:
+        setattr(
+            view_cls,
+            "__eq__",
+            _create_eq(view_cls),
         )
 
-        cls.__cwtch_params__ = {
-            "env_prefix": env_prefix,
-            "env_source": env_source,
-            "validate": validate,
-            "ignore_extra": ignore_extra,
-            "handle_circular_refs": handle_circular_refs,
-            **kwds,
-        }
+    if getattr(view_cls, "__parameters__", None):
+        setattr(view_cls, "__class_getitem__", classmethod(_make_class_getitem(view_cls)))
 
-        return cls
+    __class__ = view_cls  # noqa: F841
 
-    if cls is None:
-        return wrapper
+    def __getattribute__(self, name: str, /) -> Any:
+        result = super().__getattribute__(name)
+        if isinstance(result, Field) and result.name not in object.__getattribute__(self, "__cwtch_fields__"):
+            try:
+                x = object.__getattribute__(self, "__dict__")
+            except KeyError:
+                x = object.__getattribute__(self, "__slots__")
+            if name not in x:
+                raise AttributeError(
+                    f"'{object.__getattribute__(self, '__class__').__name__}' object has no attribute '{name}'"
+                )
+        return result
 
-    return wrapper(cls)
+    setattr(view_cls, "__getattribute__", __getattribute__)
+
+    setattr(view_cls, "__cwtch_view_name__", view_name)
+    setattr(view_cls, "__cwtch_view__", True)
+    setattr(view_cls, "__cwtch_view_base__", cls)
+    setattr(view_cls, "__cwtch_fields__", __cwtch_fields__)
+    setattr(view_cls, "__cwtch_view_params__", __cwtch_view_params__)
+
+    def cwtch_rebuild(view_cls):
+        if not getattr(view_cls, "__cwtch_view__", None):
+            raise Exception("not cwtch view")
+        return _build_view(
+            view_cls.__cwtch_view_base__,
+            view_cls,
+            name=name,
+            include=include,
+            exclude=exclude,
+            slots=slots,
+            env_prefix=env_prefix,
+            env_source=env_source,
+            validate=validate,
+            extra=extra,
+            repr=repr,
+            eq=eq,
+            recursive=recursive,
+            handle_circular_refs=handle_circular_refs,
+            rebuild=True,
+        )
+
+    setattr(view_cls, "cwtch_rebuild", classmethod(cwtch_rebuild))
+
+    setattr(cls, view_name, ViewDesc(view_cls))
+
+    return view_cls
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-
-
-def view(
-    cls=None,
-    *,
-    include: Unset[set[str]] = UNSET,
-    exclude: Unset[set[str]] = UNSET,
-    validate: Unset[bool] = UNSET,
-    ignore_extra: Unset[bool] = UNSET,
-    recursive: Unset[bool | list[str]] = UNSET,
-):
-    """
-    Decorator to create view of root model.
-
-    Args:
-      include: set of field names to include from root model.
-      exclude: set of field names to exclude from root model.
-      validate: if False skip validation(default True).
-      ignore_extra: ignore extra arguments passed to init(default False).
-      recursive: ... default(True).
-    """
-
-    if include is not UNSET and exclude is not UNSET and include & exclude:  # type: ignore
-        raise ValueError("same field in include and exclude are not allowed")
-
-    def wrapper(cls):
-        if exclude is not UNSET and cls.__dict__.keys() & exclude:
-            raise ValueError("defined fields conflict with exclude parameter")
-
-        cls.__cwtch_view_params__ = {
-            "include": include,
-            "exclude": exclude,
-            "validate": validate,
-            "ignore_extra": ignore_extra,
-            "recursive": recursive,
-        }
-
-        return cls
-
-    if cls is None:
-        return wrapper
-
-    return wrapper(cls)
 
 
 def from_attributes(
     cls,
     obj,
     data: dict | None = None,
-    exclude: list | None = None,
+    exclude: Sequence | None = None,
     suffix: str | None = None,
     reset_circular_refs: bool | None = None,
 ):
@@ -707,22 +1165,22 @@ def from_attributes(
     Args:
       obj: object from which to build.
       data: additional data to build.
-      exclude: list of field to exclude.
+      exclude: list of fields to exclude.
       suffix: fields suffix.
       reset_circular_refs: reset circular references to None.
     """
 
     kwds = {
-        f.name: getattr(obj, f"{f.name}{suffix}" if suffix else f.name)
-        for f in dataclasses.fields(cls)
-        if (not exclude or f.name not in exclude) and hasattr(obj, f"{f.name}{suffix}" if suffix else f.name)
+        f.name: getattr(obj, f"{f_name}{suffix}" if suffix else f_name)
+        for f_name, f in cls.__cwtch_fields__.items()
+        if (not exclude or f_name not in exclude) and hasattr(obj, f"{f.name}{suffix}" if suffix else f_name)
     }
     if data:
         kwds.update(data)
     if exclude:
         kwds = {k: v for k, v in kwds.items() if k not in exclude}
 
-    cache = _cache.get()
+    cache = CACHE.get()
     cache["reset_circular_refs"] = reset_circular_refs
     try:
         return cls(_cwtch_cache_key=(cls, id(obj)), **kwds)
@@ -735,33 +1193,35 @@ def from_attributes(
 
 def asdict(
     inst,
-    include: set[str] | None = None,
-    exclude: set[str] | None = None,
+    include: Sequence[str] | None = None,
+    exclude: Sequence[str] | None = None,
     exclude_unset: bool | None = None,
-    show_secrets: bool | None = None,
+    exclude_none: bool | None = None,
+    context: dict | None = None,
 ) -> dict:
+    """Return `cwtch` model as dict."""
     return _asdict(
         inst,
-        True,
         include_=include,
         exclude_=exclude,
         exclude_unset=exclude_unset,
-        show_secrets=show_secrets,
+        exclude_none=exclude_none,
+        context=context,
     )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def resolve_types(cls, rebuild: bool = True, globalns=None, localns=None, include_extras: bool = True):
+def resolve_types(cls, globalns=None, localns=None, *, include_extras: bool = True, rebuild: bool = True):
     kwds = {"globalns": globalns, "localns": localns, "include_extras": include_extras}
 
     hints = typing.get_type_hints(cls, **kwds)
-    for field in dataclasses.fields(cls):
-        if field.name in hints:
-            field.type = hints[field.name]
-        if field.name in cls.__annotations__:
-            cls.__annotations__[field.name] = hints[field.name]
+    for f_name, f in cls.__cwtch_fields__.items():
+        if f_name in hints:
+            f.type = hints[f_name]
+        if f_name in cls.__annotations__:
+            cls.__annotations__[f_name] = hints[f_name]
 
     if rebuild:
         cls.cwtch_rebuild()

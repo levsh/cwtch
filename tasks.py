@@ -3,7 +3,16 @@ import os
 
 from invoke import task
 
+
 CWD = os.path.abspath(os.path.dirname(__file__))
+
+
+@task
+def linters(c):
+    """Run linters"""
+
+    cmd = "poetry run ruff check cwtch"
+    c.run(cmd)
 
 
 @task
@@ -11,9 +20,9 @@ def tests(c):
     """Run tests"""
 
     cmd = (
-        "coverage run --data-file=artifacts/.coverage --source cwtch -m pytest -v --maxfail=1 tests/ && "
-        "coverage json --data-file=artifacts/.coverage -o artifacts/coverage.json && "
-        "coverage report --data-file=artifacts/.coverage -m"
+        "poetry run coverage run --data-file=artifacts/.coverage --source cwtch -m pytest -v --maxfail=1 tests/ && "
+        "poetry run coverage json --data-file=artifacts/.coverage -o artifacts/coverage.json && "
+        "poetry run coverage report --data-file=artifacts/.coverage -m"
     )
     c.run(cmd)
 
@@ -50,3 +59,17 @@ def generate_coverage_gist(c):
 
     with open("artifacts/shields_io_coverage_gist_data.json", "w") as f:
         f.write(json.dumps(data))
+
+
+@task
+def build_docs(c):
+    """Build documentation"""
+
+    cmd = "poetry run mkdocs build -f docs/mkdocs.yml"
+    c.run(cmd)
+
+    cmd = "poetry run mkdocs build -f docs/en/mkdocs.yml -d ../site/en/"
+    c.run(cmd)
+
+    cmd = "poetry run mkdocs build -f docs/ru/mkdocs.yml -d ../site/ru/"
+    c.run(cmd)

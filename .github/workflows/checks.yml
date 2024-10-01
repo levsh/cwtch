@@ -29,6 +29,9 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install poetry
         poetry install
+    - name: Run linters
+      run: |
+        poetry run inv linters
     - name: Run test
       run: |
         poetry run inv tests

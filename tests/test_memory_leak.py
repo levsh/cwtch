@@ -5,7 +5,7 @@ import psutil
 from cwtch import dataclass, field
 
 
-@dataclass(ignore_extra=True)
+@dataclass(extra="ignore")
 class CC:
     li1: list[int] = field()
     li2: list[int] = field()
@@ -66,9 +66,9 @@ def test_memory_leak():
 
     memory_start = p.memory_full_info()
 
-    for _ in range(200):
+    for _ in range(1000):
         [C(**data) for _ in range(1000)]
-        time.sleep(0.01)
+        time.sleep(0.002)
 
     memory_end = p.memory_full_info()
 

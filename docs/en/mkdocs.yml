@@ -1,9 +1,10 @@
 site_name: cwtch
 
-site_url: https://levsh.github.io/cwtch/
-
 nav:
-  - cwtch: index.md
+  - About: index.md
+  - Installation: installation.md
+  - User Guide: user_guide/basic.md
+  - API Reference: api_reference.md
 
 theme:
   language: en
@@ -33,9 +34,9 @@ extra_css:
 
 extra:
   alternate:
-  - link: en
+  - link: .
     name: en - English
-  - link: ru
+  - link: ../ru
     name: ru - Русский
 
 repo_url: https://github.com/levsh/cwtch
