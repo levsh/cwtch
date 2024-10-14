@@ -20,7 +20,8 @@ def tests(c):
     """Run tests"""
 
     cmd = (
-        "poetry run coverage run --data-file=artifacts/.coverage --source cwtch -m pytest -v --maxfail=1 tests/ && "
+        "poetry run coverage run --data-file=artifacts/.coverage --source cwtch "
+        "-m pytest -v --maxfail=1 --benchmark-columns=min,max,mean,stddev,median,ops tests/ && "
         "poetry run coverage json --data-file=artifacts/.coverage -o artifacts/coverage.json && "
         "poetry run coverage report --data-file=artifacts/.coverage -m"
     )

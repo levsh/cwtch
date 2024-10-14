@@ -62,14 +62,14 @@ FALSE_MAP = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No"
 
 
 @cython.cfunc
-def asdict_handler(inst, exclude_unset: cython.int, exclude_none: cython.int, context):
+def asdict_handler(inst, exclude_unset, exclude_none, context):
     if (cwtch_fields := getattr(inst, "__cwtch_fields__", None)) is None:
         return inst
 
     data = {}
 
     for k in cwtch_fields:
-        v = getattr(inst, k)
+        v = getattr(inst, k, None)
         if exclude_unset and v is UNSET:
             continue
         if exclude_none and v is None:
@@ -94,12 +94,12 @@ def asdict_handler(inst, exclude_unset: cython.int, exclude_none: cython.int, co
 
 
 @cython.cfunc
-def _asdict_handler(inst, exclude_unset: cython.int, exclude_none: cython.int, context):
+def _asdict_handler(inst, exclude_unset, exclude_none, context):
     if inst_asdict := getattr(inst, "__cwtch_asdict__", None):
         return inst_asdict(
             asdict_handler,
-            exclude_unset=bool(exclude_unset),
-            exclude_none=bool(exclude_none),
+            exclude_unset=exclude_unset,
+            exclude_none=exclude_none,
             context=context,
         )
     return asdict_handler(inst, exclude_unset, exclude_none, context)
@@ -110,11 +110,11 @@ def asdict_root_handler(
     inst,
     include_,
     exclude_,
-    exclude_unset: cython.int,
-    exclude_none: cython.int,
+    exclude_unset,
+    exclude_none,
     context,
 ):
-    if (keys := getattr(inst, "__cwtch_fields__")) is None:
+    if (keys := getattr(inst, "__cwtch_fields__", None)) is None:
         if isinstance(inst, dict):
             keys = inst
         else:
@@ -135,7 +135,7 @@ def asdict_root_handler(
             continue
         if use_exc_cond and k in exclude_:
             continue
-        v = getattr(inst, k)
+        v = getattr(inst, k, None)
         if exclude_unset and v is UNSET:
             continue
         if exclude_none and v is None:
@@ -164,23 +164,23 @@ def _asdict_root_handler(
     inst,
     include_,
     exclude_,
-    exclude_unset: cython.int,
-    exclude_none: cython.int,
+    exclude_unset,
+    exclude_none,
     context,
 ):
     if inst_asdict := getattr(inst, "__cwtch_asdict__", None):
         return inst_asdict(
             asdict_root_handler,
-            exclude_unset=bool(exclude_unset),
-            exclude_none=bool(exclude_none),
+            exclude_unset=exclude_unset,
+            exclude_none=exclude_none,
             context=context,
         )
     return asdict_root_handler(
         inst,
         include_,
         exclude_,
-        exclude_unset=bool(exclude_unset),
-        exclude_none=bool(exclude_none),
+        exclude_unset=exclude_unset,
+        exclude_none=exclude_none,
         context=context,
     )
 
@@ -983,15 +983,7 @@ def __():
         exclude_none=None,
         context=None,
     ):
-        if exclude_unset:
-            exclude_unset_: cython.int = 1
-        else:
-            exclude_unset_: cython.int = 0
-        if exclude_none:
-            exclude_none_: cython.int = 1
-        else:
-            exclude_none_: cython.int = 0
-        return _asdict_root_handler(inst, include_, exclude_, exclude_unset_, exclude_none_, context)
+        return _asdict_root_handler(inst, include_, exclude_, exclude_unset, exclude_none, context)
 
     return (
         get_validator,

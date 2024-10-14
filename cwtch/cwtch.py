@@ -100,7 +100,7 @@ def field(
     repr: bool = True,
     validate: bool = True,
     metadata: Unset[dict] = UNSET,
-) -> Field | Any:
+) -> Any:
     return Field(
         default=default,
         default_factory=default_factory,
