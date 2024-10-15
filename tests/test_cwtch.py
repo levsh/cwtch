@@ -847,7 +847,7 @@ class TestView:
             i: Optional[int] = None
             s: Optional[str] = None
 
-        @view(name="V", include=["i"])
+        @view("V", include=["i"])
         class AV(A):
             pass
 
@@ -855,7 +855,7 @@ class TestView:
         class B:
             a: Optional[list[A]]
 
-        @view(name="V", recursive=True)
+        @view("V", recursive=True)
         class BV(B):
             pass
 
@@ -867,11 +867,11 @@ class TestView:
         class A:
             i: int
 
-        @view(name="V1")
+        @view("V1")
         class AV1(A):
             pass
 
-        @view(name="V2")
+        @view("V2")
         class AV2(A):
             pass
 
@@ -879,7 +879,7 @@ class TestView:
         class B(A):
             s: str
 
-        @view(name="V2")
+        @view("V2")
         class BV2(B, A.V2):
             pass
 

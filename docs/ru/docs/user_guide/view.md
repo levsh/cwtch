@@ -15,11 +15,11 @@ class Model:
     s: str
     f: float
 
-@view(name='V1', exclude=['s'])
+@view('V1', exclude=['s'])
 class ModelV1(Model):
     f: int
 
-@view(name='V2', include=['s'])
+@view('V2', include=['s'])
 class ModelV2(Model):
     pass
 
@@ -56,7 +56,7 @@ class A:
     i: int
     s: str
 
-@view(name='V', exclude=["s"], recursiv=True)
+@view('V', exclude=["s"], recursiv=True)
 class AV(A):
     pass
 
@@ -64,7 +64,7 @@ class AV(A):
 class B:
     a: A
 
-@view(name='V')
+@view('V')
 class BV(B):
     pass
 

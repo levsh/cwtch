@@ -16,7 +16,7 @@ from cwtch.core import CACHE
 from cwtch.core import asdict as _asdict
 from cwtch.core import get_validator, validate_value, validate_value_using_validator
 from cwtch.errors import ValidationError
-from cwtch.types import _MISSING, UNSET, Missing, Unset
+from cwtch.types import _MISSING, UNSET, Missing, Unset, UnsetType
 
 
 def is_classvar(tp) -> bool:
@@ -194,9 +194,8 @@ def dataclass(
 
 
 def view(
-    view_cls=None,
+    view_cls_or_view_name=UNSET,
     *,
-    name: Unset[str] = UNSET,
     include: Unset[Sequence[str]] = UNSET,
     exclude: Unset[Sequence[str]] = UNSET,
     slots: Unset[bool] = UNSET,
@@ -211,7 +210,6 @@ def view(
 ):
     """
     Args:
-        name: view name.
         include: list of fields to include in view.
         exclude: list of fields to exclude from view.
         slots: if true, __slots__ attribute will be generated
@@ -237,10 +235,15 @@ def view(
             If UNSET value from base view model will be used.
     """
 
+    if isinstance(view_cls_or_view_name, str):
+        view_name = view_cls_or_view_name
+    else:
+        view_name = UNSET
+
     def wrapper(
         view_cls,
         *,
-        name=name,
+        name=view_name,
         include=include,
         exclude=exclude,
         slots=slots,
@@ -284,10 +287,10 @@ def view(
             handle_circular_refs,
         )
 
-    if view_cls is None:
+    if isinstance(view_cls_or_view_name, (str, UnsetType)):
         return wrapper
 
-    return wrapper(view_cls)
+    return wrapper(view_cls_or_view_name)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

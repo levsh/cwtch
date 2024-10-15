@@ -129,7 +129,7 @@ class TestGeneric:
         class A(Generic[T]):
             x: T
 
-        @view(name="V")
+        @view("V")
         class AV(A):
             x: int
 
@@ -138,7 +138,7 @@ class TestGeneric:
             # x: str
             pass
 
-        @view(name="V")
+        @view("V")
         class BV(B):
             x: bool
 
@@ -154,7 +154,7 @@ class TestGeneric:
         class M(Generic[T]):
             f: T = field(default_factory=T)
 
-        @view(name="V")
+        @view("V")
         class MV(M):
             pass
 
