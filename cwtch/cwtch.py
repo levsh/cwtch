@@ -797,10 +797,10 @@ def _build(
         f.type = f_type
         __cwtch_fields__[f_name] = f
 
-    if env_prefix is not UNSET:
-        for f in __cwtch_fields__.values():
-            if f.metadata.get("env_var", True) and f.default == _MISSING and f.default_factory == _MISSING:
-                raise TypeError(f"environment field[{f.name}] should has default or default_factory value")
+    # if env_prefix is not UNSET:
+    #     for f in __cwtch_fields__.values():
+    #         if f.metadata.get("env_var", True) and f.default == _MISSING and f.default_factory == _MISSING:
+    #             raise TypeError(f"environment field[{f.name}] should has default or default_factory value")
 
     if not rebuild:
         if slots:
