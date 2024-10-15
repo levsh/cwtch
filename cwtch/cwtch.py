@@ -592,10 +592,12 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
             "           else:",
             "               key = f'{env_prefix}{f_name}'.upper()",
             "           if key in env_source_data:",
-            "               try:",
-            "                   env_data[f_name] = _json_loads(env_source_data[key])",
-            "               except JSONDecodeError:",
-            "                   env_data[f_name] = env_source_data[key]",
+            "               env_data[f_name] = env_value = env_source_data[key]",
+            "               if env_value[0] in ('[', '{') and env_value[-1] in (']', '}'):",
+            "                   try:",
+            "                       env_data[f_name] = _json_loads(env_value)",
+            "                   except JSONDecodeError:",
+            "                       pass",
             "               break",
         ]
 
