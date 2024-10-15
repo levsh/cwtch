@@ -159,6 +159,9 @@ class SecretStr(str):
     def __ne__(self, other):
         return True
 
+    def __len__(self):
+        return len(self._value)
+
     @classmethod
     def __cwtch_json_schema__(cls) -> dict:
         return {"type": "string"}
@@ -214,6 +217,9 @@ class SecretUrl(str, _UrlMixIn):
 
     def __ne__(self, other):
         return True
+
+    def __len__(self):
+        return len(self._value)
 
     @property
     def username(self):

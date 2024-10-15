@@ -31,6 +31,7 @@ def test_SecretStr():
     assert repr(s) == "SecretStr(***)"
     assert s.get_secret_value() == "secret"
     assert hash(s) == hash(s.get_secret_value())
+    assert len(s) == len(s.get_secret_value())
 
 
 def test_SecretUrl():
@@ -50,6 +51,7 @@ def test_SecretUrl():
     assert url.fragment == "z"
     assert url.get_secret_value() == "http://user:pass@localhost:80/abc?x=y#z"
     assert hash(url) == hash(url.get_secret_value())
+    assert len(url) == len(url.get_secret_value())
 
 
 def test_model():

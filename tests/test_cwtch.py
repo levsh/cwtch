@@ -118,54 +118,54 @@ class TestMetadata:
             validate_value(0, Annotated[Annotated[int, Lt(0)], Lt(1)])
 
     def test_validate_min_len(self):
-        assert validate_value([0], Annotated[list, MinLen(1)]) == [0]
+        assert validate_value("a", Annotated[str, MinLen(1)]) == "a"
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MinLen(value=1)] ] value_type[ <class 'list'> ] value[ [] ]\n"
+                    "type[ Annotated[str, MinLen(value=1)] ] value_type[ <class 'str'> ] value[ '' ]\n"
                     "  Error: value length should be >= 1"
                 )
             ),
         ):
-            validate_value([], Annotated[list, MinLen(1)])
+            validate_value("", Annotated[str, MinLen(1)])
 
-        assert validate_value([0, 1], Annotated[Annotated[list, MinLen(2)], MinLen(1)]) == [0, 1]
+        assert validate_value("ab", Annotated[Annotated[str, MinLen(2)], MinLen(1)]) == "ab"
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MinLen(value=2), MinLen(value=1)] ] value_type[ <class 'list'> ] value[ [0] ]\n"
+                    "type[ Annotated[str, MinLen(value=2), MinLen(value=1)] ] value_type[ <class 'str'> ] value[ 'a' ]\n"
                     "  Error: value length should be >= 2"
                 )
             ),
         ):
-            validate_value([0], Annotated[Annotated[list, MinLen(2)], MinLen(1)])
+            validate_value("a", Annotated[Annotated[str, MinLen(2)], MinLen(1)])
 
     def test_validate_max_len(self):
-        assert validate_value([0], Annotated[list, MaxLen(1)]) == [0]
+        assert validate_value("a", Annotated[str, MaxLen(1)]) == "a"
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MaxLen(value=1)] ] value_type[ <class 'list'> ] value[ [0, 1] ]\n"
+                    "type[ Annotated[str, MaxLen(value=1)] ] value_type[ <class 'str'> ] value[ 'ab' ]\n"
                     "  Error: value length should be <= 1"
                 )
             ),
         ):
-            validate_value([0, 1], Annotated[list, MaxLen(1)])
+            validate_value("ab", Annotated[str, MaxLen(1)])
 
-        assert validate_value([0], Annotated[Annotated[list, MaxLen(1)], MaxLen(2)]) == [0]
+        assert validate_value("a", Annotated[Annotated[str, MaxLen(1)], MaxLen(2)]) == "a"
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MaxLen(value=1), MaxLen(value=2)] ] value_type[ <class 'list'> ] value[ [0, 1] ]\n"
+                    "type[ Annotated[str, MaxLen(value=1), MaxLen(value=2)] ] value_type[ <class 'str'> ] value[ 'ab' ]\n"
                     "  Error: value length should be <= 1"
                 )
             ),
         ):
-            validate_value([0, 1], Annotated[Annotated[list, MaxLen(1)], MaxLen(2)])
+            validate_value("ab", Annotated[Annotated[str, MaxLen(1)], MaxLen(2)])
 
     def test_validate_min_items(self):
         assert validate_value([0], Annotated[list, MinItems(1)]) == [0]
@@ -504,22 +504,27 @@ class TestModel:
         @dataclass(env_prefix="TEST_")
         class M:
             i: int = field(default=0, metadata={"env_var": True})
-            j: int = field(default_factory=lambda: 7, metadata={"env_var": True})
+            s: str = field(default_factory=lambda: "a", metadata={"env_var": True})
 
         env = {}
         with mock.patch.dict(os.environ, env, clear=True):
             assert M().i == 0
-            assert M().j == 7
+            assert M().s == "a"
 
         env = {"TEST_I": "1"}
         with mock.patch.dict(os.environ, env, clear=True):
             assert M().i == 1
-            assert M().j == 7
+            assert M().s == "a"
 
-        env = {"TEST_J": "0"}
+        env = {"TEST_S": "b"}
         with mock.patch.dict(os.environ, env, clear=True):
             assert M().i == 0
-            assert M().j == 0
+            assert M().s == "b"
+
+        env = {"TEST_S": "0"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            assert M().i == 0
+            assert M().s == "0"
 
     def test_env_multi_prefix(self):
         @dataclass(env_prefix=["TEST1_", "TEST2_"])
@@ -541,6 +546,15 @@ class TestModel:
         with mock.patch.dict(os.environ, env, clear=True):
             assert M().i == 0
             assert M().j == 0
+
+    def test_env_json(self):
+        @dataclass(env_prefix="TEST_")
+        class M:
+            v: dict
+
+        env = {"TEST_V": '{"k": "v"}'}
+        with mock.patch.dict(os.environ, env, clear=True):
+            assert M().v == {"k": "v"}
 
     def test_inheritance(self):
         @dataclass
