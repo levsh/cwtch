@@ -222,9 +222,9 @@ def validate_str(value, T, /):
 
 @cython.cfunc
 def validate_bytes(value, T, /):
-    if type(value) == bytes:
+    if isinstance(value, bytes):
         return value
-    if type(value) == str:
+    if isinstance(value, str):
         return value.encode()
     return bytes(value)
 
@@ -232,7 +232,7 @@ def validate_bytes(value, T, /):
 @cython.cfunc
 def validate_type(value, T, /):
     if (origin := getattr(T, "__origin__", T)) == T:
-        if type(value) == origin:
+        if isinstance(value, origin):
             return value
     if (cwtch_fields := getattr(origin, "__cwtch_fields__", None)) is not None:
         if getattr(origin, "__cwtch_handle_circular_refs__", None):
