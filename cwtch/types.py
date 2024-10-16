@@ -135,7 +135,7 @@ class Url(str, _UrlMixIn):
         return f"{self.__class__.__name__}({self})"
 
     @classmethod
-    def __cwtch_json_schema__(cls) -> dict:
+    def __cwtch_json_schema__(cls, **kwds) -> dict:
         return {"type": "string", "format": "uri"}
 
 
@@ -163,7 +163,7 @@ class SecretStr(str):
         return len(self._value)
 
     @classmethod
-    def __cwtch_json_schema__(cls) -> dict:
+    def __cwtch_json_schema__(cls, **kwds) -> dict:
         return {"type": "string"}
 
     def __cwtch_asdict__(self, handler, context: dict | None = None, **kwds):
@@ -230,7 +230,7 @@ class SecretUrl(str, _UrlMixIn):
         return "***" if self._url.password else None
 
     @classmethod
-    def __cwtch_json_schema__(cls) -> dict:
+    def __cwtch_json_schema__(cls, **kwds) -> dict:
         return {"type": "string", "format": "uri"}
 
     def __cwtch_asdict__(self, handler, context: dict | None = None, **kwds):
