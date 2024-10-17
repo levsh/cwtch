@@ -1,5 +1,6 @@
 import re
 
+from collections import namedtuple
 from functools import lru_cache
 from ipaddress import ip_address
 from typing import Annotated, TypeVar
@@ -71,6 +72,9 @@ StrictFloat = Annotated[float, Strict(float)]
 StrictNumber = StrictInt | StrictFloat
 StrictStr = Annotated[str, Strict(str)]
 StrictBool = Annotated[bool, Strict(bool)]
+
+
+AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
 
 
 @lru_cache
@@ -166,8 +170,8 @@ class SecretStr(str):
     def __cwtch_json_schema__(cls, **kwds) -> dict:
         return {"type": "string"}
 
-    def __cwtch_asdict__(self, handler, context: dict | None = None, **kwds):
-        if (context or {}).get("show_secrets"):
+    def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
+        if (kwds.context or {}).get("show_secrets"):
             return self.get_secret_value()
         return self
 
@@ -233,8 +237,8 @@ class SecretUrl(str, _UrlMixIn):
     def __cwtch_json_schema__(cls, **kwds) -> dict:
         return {"type": "string", "format": "uri"}
 
-    def __cwtch_asdict__(self, handler, context: dict | None = None, **kwds):
-        if (context or {}).get("show_secrets"):
+    def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
+        if (kwds.context or {}).get("show_secrets"):
             return self.get_secret_value()
         return self
 

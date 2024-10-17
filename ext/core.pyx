@@ -30,7 +30,7 @@ import cython
 
 from .errors import ValidationError
 from .metadata import TypeMetadata
-from .types import UNSET, UnsetType, _MISSING
+from .types import UNSET, UnsetType, _MISSING, AsDictKwds
 
 
 __all__ = (
@@ -62,7 +62,7 @@ FALSE_MAP = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No"
 
 
 @cython.cfunc
-def asdict_handler(inst, exclude_unset, exclude_none, context):
+def asdict_handler(inst, kwds):
     if (cwtch_fields := getattr(inst, "__cwtch_fields__", None)) is None:
         return inst
 
@@ -70,23 +70,25 @@ def asdict_handler(inst, exclude_unset, exclude_none, context):
 
     for k in cwtch_fields:
         v = getattr(inst, k, None)
-        if exclude_unset and v is UNSET:
+        if kwds.exclude_unset and v is UNSET:
             continue
-        if exclude_none and v is None:
+        if kwds.exclude_none and v is None:
             continue
         if isinstance(v, list):
-            data[k] = [_asdict_handler(x, exclude_unset, exclude_none, context) for x in v]
+            data[k] = [x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v]
         elif isinstance(v, dict):
-            data[k] = {kk: _asdict_handler(vv, exclude_unset, exclude_none, context) for kk, vv in v.items()}
+            data[k] = {
+                kk: vv if isinstance(vv, (int, str, float, bool)) else _asdict_handler(vv, kwds) for kk, vv in v.items()
+            }
         elif isinstance(v, tuple):
-            data[k] = tuple([_asdict_handler(x, exclude_unset, exclude_none, context) for x in v])
+            data[k] = tuple([x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v])
         elif isinstance(v, set):
-            data[k] = {_asdict_handler(x, exclude_unset, exclude_none, context) for x in v}
+            data[k] = {x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v}
         else:
-            v = _asdict_handler(v, exclude_unset, exclude_none, context)
-            if exclude_unset and v is UNSET:
+            v = _asdict_handler(v, kwds)
+            if kwds.exclude_unset and v is UNSET:
                 continue
-            if exclude_none and v is None:
+            if kwds.exclude_none and v is None:
                 continue
             data[k] = v
 
@@ -94,26 +96,14 @@ def asdict_handler(inst, exclude_unset, exclude_none, context):
 
 
 @cython.cfunc
-def _asdict_handler(inst, exclude_unset, exclude_none, context):
+def _asdict_handler(inst, kwds):
     if inst_asdict := getattr(inst, "__cwtch_asdict__", None):
-        return inst_asdict(
-            asdict_handler,
-            exclude_unset=exclude_unset,
-            exclude_none=exclude_none,
-            context=context,
-        )
-    return asdict_handler(inst, exclude_unset, exclude_none, context)
+        return inst_asdict(asdict_handler, kwds)
+    return asdict_handler(inst, kwds)
 
 
 @cython.cfunc
-def asdict_root_handler(
-    inst,
-    include_,
-    exclude_,
-    exclude_unset,
-    exclude_none,
-    context,
-):
+def asdict_root_handler(inst, kwds):
     if (keys := getattr(inst, "__cwtch_fields__", None)) is None:
         if isinstance(inst, dict):
             keys = inst
@@ -123,66 +113,45 @@ def asdict_root_handler(
     use_inc_cond: cython.int = 0
     use_exc_cond: cython.int = 0
 
-    if include_ is not None:
+    if kwds[0] is not None:
         use_inc_cond = 1
-    if exclude_ is not None:
+    if kwds[1] is not None:
         use_exc_cond = 1
+
+    kwds_ = AsDictKwds(UNSET, UNSET, kwds[2], kwds[3], kwds[4])
 
     data = {}
 
     for k in keys:
-        if use_inc_cond and not k in include_:
+        if use_inc_cond and not k in kwds[0]:
             continue
-        if use_exc_cond and k in exclude_:
+        if use_exc_cond and k in kwds[1]:
             continue
         v = getattr(inst, k, None)
-        if exclude_unset and v is UNSET:
+        if kwds.exclude_unset and v is UNSET:
             continue
-        if exclude_none and v is None:
+        if kwds.exclude_none and v is None:
             continue
         if isinstance(v, list):
-            data[k] = [_asdict_handler(x, exclude_unset, exclude_none, context) for x in v]
+            data[k] = [x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v]
         elif isinstance(v, dict):
-            data[k] = {kk: _asdict_handler(vv, exclude_unset, exclude_none, context) for kk, vv in v.items()}
+            data[k] = {
+                kk: vv if isinstance(vv, (int, str, float, bool)) else _asdict_handler(vv, kwds_)
+                for kk, vv in v.items()
+            }
         elif isinstance(v, tuple):
-            data[k] = tuple([_asdict_handler(x, exclude_unset, exclude_none, context) for x in v])
+            data[k] = tuple([x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v])
         elif isinstance(v, set):
-            data[k] = {_asdict_handler(x, exclude_unset, exclude_none, context) for x in v}
+            data[k] = {x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v}
         else:
-            v = _asdict_handler(v, exclude_unset, exclude_none, context)
-            if exclude_unset and v is UNSET:
+            v = _asdict_handler(v, kwds_)
+            if kwds.exclude_unset and v is UNSET:
                 continue
-            if exclude_none and v is None:
+            if kwds.exclude_none and v is None:
                 continue
             data[k] = v
 
     return data
-
-
-@cython.cfunc
-def _asdict_root_handler(
-    inst,
-    include_,
-    exclude_,
-    exclude_unset,
-    exclude_none,
-    context,
-):
-    if inst_asdict := getattr(inst, "__cwtch_asdict__", None):
-        return inst_asdict(
-            asdict_root_handler,
-            exclude_unset=exclude_unset,
-            exclude_none=exclude_none,
-            context=context,
-        )
-    return asdict_root_handler(
-        inst,
-        include_,
-        exclude_,
-        exclude_unset=exclude_unset,
-        exclude_none=exclude_none,
-        context=context,
-    )
 
 
 @cython.cfunc
@@ -979,11 +948,20 @@ def __():
         inst,
         include_=None,
         exclude_=None,
-        exclude_unset=None,
         exclude_none=None,
+        exclude_unset=None,
         context=None,
     ):
-        return _asdict_root_handler(inst, include_, exclude_, exclude_unset, exclude_none, context)
+        kwds = AsDictKwds(
+            include_,
+            exclude_,
+            exclude_none,
+            exclude_unset,
+            context,
+        )
+        if inst_asdict := getattr(inst, "__cwtch_asdict__", None):
+            return inst_asdict(asdict_root_handler, kwds)
+        return asdict_root_handler(inst, kwds)
 
     return (
         get_validator,

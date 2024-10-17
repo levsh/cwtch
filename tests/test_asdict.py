@@ -48,3 +48,45 @@ def test_show_secrets():
 
     assert cwtch.asdict(M(s="abc"))["s"] != "abc"
     assert cwtch.asdict(M(s="abc"), context={"show_secrets": True})["s"] == "abc"
+
+
+def test_custom_asdict():
+    @cwtch.dataclass
+    class M:
+        s: str
+
+        def __cwtch_asdict__(self, handler, kwds):
+            return handler(self, kwds)
+
+    assert cwtch.asdict(M(s="abc")) == {"s": "abc"}
+
+
+def test_comples():
+
+    @cwtch.dataclass
+    class MM:
+        i: int
+
+    @cwtch.dataclass
+    class M:
+        i: int
+        s: str
+        lm: list[MM]
+        tm: tuple[MM]
+        dm: dict[str, MM]
+
+    assert cwtch.asdict(
+        M(
+            i=1,
+            s="s",
+            lm=[MM(i=0)],
+            tm=(MM(i=1),),
+            dm={"k": MM(i=3)},
+        )
+    ) == {
+        "i": 1,
+        "s": "s",
+        "lm": [{"i": 0}],
+        "tm": ({"i": 1},),
+        "dm": {"k": {"i": 3}},
+    }
