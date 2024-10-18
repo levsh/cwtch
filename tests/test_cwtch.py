@@ -689,6 +689,24 @@ class TestModel:
         with pytest.raises(AttributeError):
             d.i = 0
 
+    def test_init_alias(self):
+        @dataclass
+        class D:
+            ref1: str = field("a", init_alias="$ref1")
+            ref2: str = field(default_factory=lambda: "d", init_alias="$ref2")
+
+        d = D()
+        assert d.ref1 == "a"
+        assert d.ref2 == "d"
+
+        d = D(ref1="abc", ref2="def")
+        assert d.ref1 == "abc"
+        assert d.ref2 == "def"
+
+        d = D(**{"$ref1": "abc", "$ref2": "def"})
+        assert d.ref1 == "abc"
+        assert d.ref2 == "def"
+
 
 class TestView:
     def test_view(self):

@@ -42,6 +42,7 @@ class Field:
         default=_MISSING,
         default_factory: Missing[Callable] = _MISSING,
         init: bool = True,
+        init_alias: Unset[str] = UNSET,
         repr: Unset[Literal[False]] = UNSET,
         property: Unset[Literal[True]] = UNSET,
         validate: Unset[bool] = UNSET,
@@ -52,6 +53,7 @@ class Field:
         self.default: Any = default
         self.default_factory = default_factory
         self.init = init
+        self.init_alias = init_alias
         self.repr = repr
         self.property = property
         self.validate = validate
@@ -63,6 +65,7 @@ class Field:
         yield "default", self.default, True
         yield "default_factory", self.default_factory, False
         yield "init", self.init
+        yield "init_alias", self.init_alias
         yield "repr", self.repr
         yield "property", self.property
         yield "validate", self.validate
@@ -77,6 +80,7 @@ class Field:
             self.default,
             self.default_factory,
             self.init,
+            self.init_alias,
             self.repr,
             self.property,
             self.validate,
@@ -87,6 +91,7 @@ class Field:
             other.default,
             other.default_factory,
             other.init,
+            other.init_alias,
             other.repr,
             other.property,
             other.validate,
@@ -102,6 +107,7 @@ def field(
     *,
     default_factory: Missing[Callable] = _MISSING,
     init: bool = True,
+    init_alias: Unset[str] = UNSET,
     repr: Unset[Literal[False]] = UNSET,
     property: Unset[Literal[True]] = UNSET,
     validate: Unset[bool] = UNSET,
@@ -111,6 +117,7 @@ def field(
         default=default,
         default_factory=default_factory,
         init=init,
+        init_alias=init_alias,
         repr=repr,
         property=property,
         validate=validate,
@@ -526,6 +533,7 @@ def copy_field(f: Field) -> Field:
         default=f.default,
         default_factory=f.default_factory,
         init=f.init,
+        init_alias=f.init_alias,
         repr=f.repr,
         property=f.property,
         validate=f.validate,
@@ -629,6 +637,19 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
             ]
             indent = " " * 4
 
+        if extra == "forbid":
+            allowed_extra_field_names = [f.init_alias for f in fields.values() if f.init_alias]
+            body += [
+                f"{indent}if __extra_kwds__:",
+                f"{indent}    allowed_extra_field_names = {{{', '.join(allowed_extra_field_names)}}}",
+                f"{indent}    for k in __extra_kwds__:",
+                f"{indent}        if k not in allowed_extra_field_names:",
+                f"{indent}            raise TypeError(",
+                f'{indent}                f"{{__cwtch_self__.__class__.__name__}}.__init__() "',
+                f"{indent}                f\"got an unexpected keyword argument '{{k}}'\"",
+                f"{indent}            )",
+            ]
+
         for f_name in sorted_fields:
             field = fields[f_name]
             locals[f"f_{f_name}"] = field
@@ -666,6 +687,13 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 body += [
                     f"{indent}if {f_name} is _MISSING:",
                 ]
+                if field.init_alias:
+                    body += [
+                        f"{indent}    if '{field.init_alias}' in __extra_kwds__:",
+                        f"{indent}        {f_name} = __extra_kwds__['{field.init_alias}']",
+                        f"{indent}    else:",
+                    ]
+                    indent += "    "
                 if field.default is not _MISSING:
                     body += [
                         f"{indent}    {f_name} = d_{f_name}",
@@ -679,6 +707,8 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                         f'{indent}    raise TypeError(f"{{__class__.__name__}}.__init__()'
                         f" missing required keyword-only argument: '{f_name}'\")",
                     ]
+                if field.init_alias:
+                    indent = indent[:-4]
                 body += [
                     f"{indent}else:",
                     f"{indent}    __cwtch_fields_set__ += ('{f_name}',)",
@@ -689,7 +719,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                     f"{indent}try:",
                     f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
                     f"{indent}except (TypeError, ValueError, ValidationError) as e:",
-                    f"    {indent}raise ValidationError({f_name}, __class__, [e], path=[f_{f_name}.name])",
+                    f"{indent}    raise ValidationError({f_name}, __class__, [e], path=[f_{f_name}.name])",
                 ]
             else:
                 body += [
@@ -717,6 +747,8 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
     else:
         body = ["pass"]
 
+    args += ["**__extra_kwds__"]
+
     body += [
         "if '__post_init__' in __class__.__dict__:",
         "    try:",
@@ -729,9 +761,6 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         "            path=[f'{__cwtch_self__.__class__.__name__}.__post_init__']",
         "        )",
     ]
-
-    if extra == "ignore":
-        args += ["**__cwtch_kwds__"]
 
     __init__ = _create_fn(cls, "__init__", args, body, globals=globals, locals=locals)
 
