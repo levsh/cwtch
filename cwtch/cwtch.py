@@ -1119,8 +1119,9 @@ def _build_view(
             if "__slots__" in __dict__:
                 __slots__ += tuple(x for x in __dict__["__slots__"] if x not in __slots__)
             __dict__["__slots__"] = __slots__
-        for f_name, f in __cwtch_fields__.items():
-            __dict__[f_name] = f
+        else:
+            for f_name, f in __cwtch_fields__.items():
+                __dict__[f_name] = f
         __dict__.pop("__dict__", None)
         view_cls = type(view_cls.__name__, view_cls.__bases__, __dict__)
 

@@ -929,6 +929,15 @@ class TestView:
         assert not issubclass(B.V1, A.V1)
         assert issubclass(B.V2, A.V2)
 
+    def test_slots(self):
+        @dataclass(slots=True)
+        class M:
+            i: int
+
+        @view
+        class V1(M):
+            pass
+
 
 class TestJsonSchema:
     def test_make_json_schema(self):
