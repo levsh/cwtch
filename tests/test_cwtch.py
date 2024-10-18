@@ -9,7 +9,7 @@ import pytest
 from cwtch import asdict, dataclass, field, make_json_schema, validate_args, validate_value, view
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
-from cwtch.types import _MISSING, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, UpperStr
+from cwtch.types import _MISSING, UNSET, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, UpperStr
 
 
 T = TypeVar("T")
@@ -667,6 +667,28 @@ class TestModel:
         assert D(i="1", s=1).i == 1
         assert D(i="1", s=1).s == "1"
 
+    def test_property(self):
+        @dataclass
+        class D:
+            i: int = field(property=True)
+
+        d = D(i="1")
+        assert d.i == 1
+        assert "i" not in d.__dict__
+        with pytest.raises(AttributeError):
+            d.i = 0
+
+    def test_property_with_slots(self):
+        @dataclass(slots=True)
+        class D:
+            i: int = field(property=True)
+
+        d = D(i="1")
+        assert d.i == 1
+        assert "i" not in d.__slots__
+        with pytest.raises(AttributeError):
+            d.i = 0
+
 
 class TestView:
     def test_view(self):
@@ -716,7 +738,7 @@ class TestView:
         assert M.V2.__cwtch_fields__["i"].default == 0
         assert M.V2.__cwtch_fields__["i"].default_factory == _MISSING
         assert M.V2.__cwtch_fields__["i"].init == True
-        assert M.V2.__cwtch_fields__["i"].repr == True
+        assert M.V2.__cwtch_fields__["i"].repr == UNSET
         assert M.V2.__cwtch_fields__["i"].metadata == {}
 
         assert M.V3
@@ -731,7 +753,7 @@ class TestView:
         assert M.V3.__cwtch_fields__["i"].default == 0
         assert M.V3.__cwtch_fields__["i"].default_factory == _MISSING
         assert M.V3.__cwtch_fields__["i"].init == True
-        assert M.V3.__cwtch_fields__["i"].repr == True
+        assert M.V3.__cwtch_fields__["i"].repr == UNSET
         assert M.V3.__cwtch_fields__["i"].metadata == {}
 
         assert M.V4
@@ -746,7 +768,7 @@ class TestView:
         assert M.V4.__cwtch_fields__["i"].default == _MISSING
         assert M.V4.__cwtch_fields__["i"].default_factory == _MISSING
         assert M.V4.__cwtch_fields__["i"].init == True
-        assert M.V4.__cwtch_fields__["i"].repr == True
+        assert M.V4.__cwtch_fields__["i"].repr == UNSET
         assert M.V4.__cwtch_fields__["i"].metadata == {}
 
         m = M(i="1", s=1, b="n", l=["1", "2"])
@@ -839,7 +861,7 @@ class TestView:
         assert M.V1(i="1", b=True).i == 1
         assert M.V1(i="1", b="t").b == "t"
         assert M.V2(i="1", b=True).i == "1"
-        assert M.V2(i="1", b="t").b == "t"
+        assert M.V2(i="1", b="t").b is True
 
     def test_recursive(self):
         @dataclass

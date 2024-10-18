@@ -11,7 +11,7 @@ from typing import Any, Callable, ClassVar, Generic, Literal, Type, Union, cast
 
 import rich.repr
 
-from cwtch.config import EXTRA, HANDLE_CIRCULAR_REFS, RECURSIVE, SHOW_INPUT_VALUE_ON_ERROR, VALIDATE
+from cwtch.config import EQ, EXTRA, HANDLE_CIRCULAR_REFS, RECURSIVE, REPR, SHOW_INPUT_VALUE_ON_ERROR, SLOTS, VALIDATE
 from cwtch.core import CACHE
 from cwtch.core import asdict as _asdict
 from cwtch.core import get_validator, validate_value, validate_value_using_validator
@@ -42,8 +42,9 @@ class Field:
         default=_MISSING,
         default_factory: Missing[Callable] = _MISSING,
         init: bool = True,
-        repr: bool = True,
-        validate: bool = True,
+        repr: Unset[Literal[False]] = UNSET,
+        property: Unset[Literal[True]] = UNSET,
+        validate: Unset[bool] = UNSET,
         metadata: Unset[dict] = UNSET,
     ):
         self.name: str = cast(str, None)
@@ -52,6 +53,7 @@ class Field:
         self.default_factory = default_factory
         self.init = init
         self.repr = repr
+        self.property = property
         self.validate = validate
         self.metadata = {} if metadata is UNSET else metadata
 
@@ -62,6 +64,7 @@ class Field:
         yield "default_factory", self.default_factory, False
         yield "init", self.init
         yield "repr", self.repr
+        yield "property", self.property
         yield "validate", self.validate
         yield "metadata", self.metadata
 
@@ -75,6 +78,7 @@ class Field:
             self.default_factory,
             self.init,
             self.repr,
+            self.property,
             self.validate,
             self.metadata,
         ) == (
@@ -84,6 +88,7 @@ class Field:
             other.default_factory,
             other.init,
             other.repr,
+            other.property,
             other.validate,
             other.metadata,
         )
@@ -97,8 +102,9 @@ def field(
     *,
     default_factory: Missing[Callable] = _MISSING,
     init: bool = True,
-    repr: bool = True,
-    validate: bool = True,
+    repr: Unset[Literal[False]] = UNSET,
+    property: Unset[Literal[True]] = UNSET,
+    validate: Unset[bool] = UNSET,
     metadata: Unset[dict] = UNSET,
 ) -> Any:
     return Field(
@@ -106,6 +112,7 @@ def field(
         default_factory=default_factory,
         init=init,
         repr=repr,
+        property=property,
         validate=validate,
         metadata=metadata,
     )
@@ -117,14 +124,14 @@ def field(
 def dataclass(
     cls=None,
     *,
-    slots: bool = False,
+    slots: Unset[bool] = UNSET,
     env_prefix: Unset[str | Sequence[str]] = UNSET,
     env_source: Unset[Callable] = UNSET,
     validate: Unset[bool] = UNSET,
     show_input_value_on_error: Unset[bool] = UNSET,
     extra: Unset[Literal["ignore", "forbid"]] = UNSET,
-    repr: bool = True,
-    eq: bool = True,
+    repr: Unset[bool] = UNSET,
+    eq: Unset[bool] = UNSET,
     recursive: Unset[bool | Sequence[str]] = UNSET,
     handle_circular_refs: Unset[bool] = UNSET,
 ):
@@ -145,12 +152,18 @@ def dataclass(
         handle_circular_refs: handle or not circular refs.
     """
 
+    if slots is UNSET:
+        slots = SLOTS
     if validate is UNSET:
         validate = VALIDATE
     if show_input_value_on_error is UNSET:
         show_input_value_on_error = SHOW_INPUT_VALUE_ON_ERROR
     if extra is UNSET:
         extra = EXTRA
+    if repr is UNSET:
+        repr = REPR
+    if eq is UNSET:
+        eq = EQ
     if recursive is UNSET:
         recursive = RECURSIVE
     if handle_circular_refs is UNSET:
@@ -514,6 +527,8 @@ def copy_field(f: Field) -> Field:
         default_factory=f.default_factory,
         init=f.init,
         repr=f.repr,
+        property=f.property,
+        validate=f.validate,
         metadata=deepcopy(f.metadata),
     )
     new_f.name = f.name
@@ -668,24 +683,32 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                     f"{indent}else:",
                     f"{indent}    __cwtch_fields_set__ += ('{f_name}',)",
                 ]
-            if validate and field.validate:
+            if field.validate is True or (field.validate is UNSET and validate is True):
                 locals[f"v_{f_name}"] = get_validator(field.type)
                 body += [
                     f"{indent}try:",
-                    f"{indent}    __cwtch_self__.{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
+                    f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
                     f"{indent}except (TypeError, ValueError, ValidationError) as e:",
                     f"    {indent}raise ValidationError({f_name}, __class__, [e], path=[f_{f_name}.name])",
                 ]
             else:
                 body += [
-                    f"{indent}__cwtch_self__.{f_name} = {f_name}",
+                    f"{indent}_{f_name} = {f_name}",
+                ]
+            if field.property is True:
+                body += [
+                    f"__cwtch_self__.__class__.{f_name} = property(lambda self: _{f_name})",
+                ]
+            else:
+                body += [
+                    f"{indent}__cwtch_self__.{f_name} = _{f_name}",
                 ]
 
         body += [
             f"{indent}__cwtch_self__.__cwtch_fields_set__ = __cwtch_fields_set__",
         ]
 
-        if handle_circular_refs:
+        if handle_circular_refs is True:
             body += [
                 "finally:",
                 "    _cache_get().pop(_cwtch_cache_key, None)",
@@ -722,17 +745,17 @@ def _create_rich_repr(cls, fields):
     globals = {}
     locals = {}
 
-    fields = {k: v for k, v in fields.items() if v.repr is True}
+    fields = {k: v for k, v in fields.items() if v.repr is not False}
 
     args = ["__cwtch_self__"]
 
     body = []
 
-    if fields:
-        for f_name in fields:
-            body.append(f"yield '{f_name}', __cwtch_self__.{f_name}")
-    else:
-        body = ["pass"]
+    if not fields:
+        raise Exception("unable to create __rich_repr__ method, all fields disable `repr`")
+
+    for f_name in fields:
+        body.append(f"yield '{f_name}', __cwtch_self__.{f_name}")
 
     __rich_repr__ = _create_fn(cls, "__rich_repr__", args, body, globals=globals, locals=locals)
 
@@ -811,7 +834,9 @@ def _build(
         if slots:
             if "__slots__" in __dict__:
                 raise TypeError(f"{cls.__name__} already specifies __slots__")
-            __dict__["__slots__"] = tuple(__cwtch_fields__.keys()) + ("__cwtch_fields_set__",)
+            __dict__["__slots__"] = tuple(
+                [f_name for f_name, f in __cwtch_fields__.items() if f.property is not True]
+            ) + ("__cwtch_fields_set__",)
         __dict__.pop("__dict__", None)
         cls = type(cls.__name__, cls.__bases__, __dict__)
 
@@ -1061,7 +1086,7 @@ def _build_view(
 
     if not rebuild:
         if __cwtch_view_params__["slots"]:
-            __slots__ = tuple(__cwtch_fields__.keys())
+            __slots__ = tuple([f_name for f_name, f in __cwtch_fields__.items() if f.property is not True])
             if "__slots__" in __dict__:
                 __slots__ += tuple(x for x in __dict__["__slots__"] if x not in __slots__)
             __dict__["__slots__"] = __slots__
