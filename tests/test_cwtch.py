@@ -6,6 +6,8 @@ from unittest import mock
 
 import pytest
 
+from typing_extensions import Doc
+
 from cwtch import asdict, dataclass, field, make_json_schema, validate_args, validate_value, view
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
@@ -978,6 +980,18 @@ class TestJsonSchema:
         )
         assert make_json_schema(int | str) == ({"anyOf": [{"type": "integer"}, {"type": "string"}]}, {})
         assert make_json_schema(Unset[str]) == ({"type": "string"}, {})
+        assert make_json_schema(Annotated[str, Doc("This is doc")]) == (
+            {"type": "string", "description": "This is doc"},
+            {},
+        )
+        assert make_json_schema(Annotated[list[Annotated[str, Doc("This is doc")]], MinItems(1)]) == (
+            {"type": "array", "items": {"type": "string", "description": "This is doc"}, "minItems": 1},
+            {},
+        )
+        assert make_json_schema(Annotated[list[str], Doc("This is doc")]) == (
+            {"type": "array", "items": {"type": "string"}},
+            {},
+        )
 
         @dataclass
         class Model:

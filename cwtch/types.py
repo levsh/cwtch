@@ -77,6 +77,80 @@ StrictBool = Annotated[bool, Strict(bool)]
 AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
 
 
+class SecretBytes(bytes):
+    def __new__(cls, value):
+        obj = super().__new__(cls, b"***")
+        obj._value = value
+        return obj
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(***)"
+
+    def __hash__(self):
+        return hash(self._value)
+
+    def __eq__(self, other):
+        if not isinstance(other, SecretBytes):
+            return False
+        return self._value == other._value
+
+    def __ne__(self, other):
+        return True
+
+    def __len__(self):
+        return len(self._value)
+
+    # @classmethod
+    # def __cwtch_json_schema__(cls, **kwds) -> dict:
+    #     return {"type": "string"}
+
+    def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
+        if (kwds.context or {}).get("show_secrets"):
+            return self.get_secret_value()
+        return self
+
+    def get_secret_value(self) -> str:
+        return self._value
+
+
+class SecretStr(str):
+    __slots__ = ("_value",)
+
+    def __new__(cls, value):
+        obj = super().__new__(cls, "***")
+        obj._value = value
+        return obj
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(***)"
+
+    def __hash__(self):
+        return hash(self._value)
+
+    def __eq__(self, other):
+        if not isinstance(other, SecretStr):
+            return False
+        return self._value == other._value
+
+    def __ne__(self, other):
+        return True
+
+    def __len__(self):
+        return len(self._value)
+
+    @classmethod
+    def __cwtch_json_schema__(cls, **kwds) -> dict:
+        return {"type": "string"}
+
+    def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
+        if (kwds.context or {}).get("show_secrets"):
+            return self.get_secret_value()
+        return self
+
+    def get_secret_value(self) -> str:
+        return self._value
+
+
 @lru_cache
 def _validate_hostname(hostname: str):
     if 1 > len(hostname) > 255:
@@ -143,42 +217,6 @@ class Url(str, _UrlMixIn):
         return {"type": "string", "format": "uri"}
 
 
-class SecretStr(str):
-    __slots__ = ("_value",)
-
-    def __new__(cls, value):
-        obj = super().__new__(cls, "***")
-        obj._value = value
-        return obj
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(***)"
-
-    def __hash__(self):
-        return hash(self._value)
-
-    def __eq__(self, other):
-        return False
-
-    def __ne__(self, other):
-        return True
-
-    def __len__(self):
-        return len(self._value)
-
-    @classmethod
-    def __cwtch_json_schema__(cls, **kwds) -> dict:
-        return {"type": "string"}
-
-    def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
-        if (kwds.context or {}).get("show_secrets"):
-            return self.get_secret_value()
-        return self
-
-    def get_secret_value(self) -> str:
-        return self._value
-
-
 class SecretUrl(str, _UrlMixIn):
     __slots__ = ("_value", "_url")
 
@@ -217,7 +255,9 @@ class SecretUrl(str, _UrlMixIn):
         return hash(self._value)
 
     def __eq__(self, other):
-        return False
+        if not isinstance(other, SecretUrl):
+            return False
+        return self._value == other._value
 
     def __ne__(self, other):
         return True

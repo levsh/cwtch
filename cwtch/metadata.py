@@ -113,6 +113,22 @@ class MaxLen(TypeMetadata):
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class Len(TypeMetadata):
+    min_value: int
+    max_value: int
+
+    def json_schema(self) -> dict:
+        return {"minLength": self.min_value, "maxLength": self.max_value}
+
+    def after(self, value):
+        if len(value) < self.min_value:
+            raise ValueError(f"value length should be >= {self.min_value}")
+        if len(value) > self.max_value:
+            raise ValueError(f"value length should be  {self.max_value}")
+        return value
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class MinItems(TypeMetadata):
     value: int
 

@@ -10,7 +10,7 @@ import pytest
 from cwtch import validate_value
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge
-from cwtch.types import UNSET
+from cwtch.types import UNSET, UnsetType
 
 
 class TestValidateValue:
@@ -19,6 +19,14 @@ class TestValidateValue:
         for value in (0, 0.0, 1000, ..., "a", True, False, UNSET, object(), (), [], {}, int):
             with pytest.raises(ValidationError, match=re.escape("Error: value is not a None")):
                 validate_value(value, None)
+
+    def test_unset(self):
+        assert validate_value(UNSET, UnsetType) is UNSET
+        for value in (0, 0.0, 1000, ..., "a", True, False, None, object(), (), [], {}, int):
+            with pytest.raises(
+                ValidationError, match=re.escape("Error: value is not a valid <class 'cwtch.types.UnsetType'>")
+            ):
+                validate_value(value, UnsetType)
 
     def test_bool(self):
         for value in (1, "1", "true", "True", "TRUE", "y", "Y", "t", "yes", "Yes", "YES"):

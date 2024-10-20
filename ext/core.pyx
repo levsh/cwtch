@@ -31,6 +31,7 @@ import cython
 from .errors import ValidationError
 from .metadata import TypeMetadata
 from .types import UNSET, UnsetType, _MISSING, AsDictKwds
+from typing_extensions import Doc
 
 
 __all__ = (
@@ -810,6 +811,9 @@ def __():
         schema, refs = make_json_schema(T.__origin__, ref_builder=ref_builder, context=context, default=default)
         for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
             schema.update(metadata.json_schema())
+        if getattr(T.__origin__, "__origin__", None) is None:
+            for metadata in filter(lambda item: isinstance(item, Doc), getattr(T, "__metadata__", ())):
+                schema["description"] = metadata.documentation
         return schema, refs
 
     def make_json_schema_union(T, ref_builder=None, context=None, default=None):
