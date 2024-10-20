@@ -9,7 +9,18 @@ import pytest
 from cwtch import asdict, dataclass, field, make_json_schema, validate_args, validate_value, view
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
-from cwtch.types import _MISSING, UNSET, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, UpperStr
+from cwtch.types import (
+    _MISSING,
+    UNSET,
+    LowerStr,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictNumber,
+    StrictStr,
+    Unset,
+    UpperStr,
+)
 
 
 T = TypeVar("T")
@@ -965,6 +976,8 @@ class TestJsonSchema:
             {"type": "string", "minLength": 1, "maxLength": 10},
             {},
         )
+        assert make_json_schema(int | str) == ({"anyOf": [{"type": "integer"}, {"type": "string"}]}, {})
+        assert make_json_schema(Unset[str]) == ({"type": "string"}, {})
 
         @dataclass
         class Model:

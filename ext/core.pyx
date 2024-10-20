@@ -821,7 +821,9 @@ def __():
             arg_schema, arg_refs = make_json_schema(arg, ref_builder=ref_builder, context=context, default=default)
             schemas.append(arg_schema)
             refs.update(arg_refs)
-        return {"oneOf": schemas}, refs
+        if len(schemas) > 1:
+            return {"anyOf": schemas}, refs
+        return schemas[0], refs
 
     def make_json_schema_list(T, ref_builder=None, context=None, default=None):
         schema = {"type": "array"}
