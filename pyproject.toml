@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cwtch"
-version = "0.5.2"
+version = "0.6.0"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
