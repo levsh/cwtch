@@ -125,15 +125,15 @@ class D:
 ```python
 >>> D(i=0, items=[0])
 ...
-ValidationError: type[ <class '__main__.D'> ] path[ 'i' ] input_type[ <class 'int'> ]
-  type[ Annotated[int, Ge(value=1)] ] input_type[ <class 'int'> ]
+ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
+  type[ Annotated[int, Ge(value=1)] ] input_type[ <class 'int'> ] input_value[ 0 ]
     Error: value should be >= 1
 ```
 
 ```python
 >>> D(i=1, items=[])
 ...
-ValidationError: type[ <class '__main__.D'> ] path[ 'items' ] input_type[ <class 'list'> ]
-  type[ Annotated[list[int], MinItems(value=1)] ] input_type[ <class 'list'> ]
+ValidationError: type[ <class '__main__.D'> ] path[ 'items' ]
+  type[ Annotated[list[int], MinItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [] ]
     Error: items count should be >= 1
 ```

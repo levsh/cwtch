@@ -20,17 +20,15 @@ Out[3]: D(i=1, s='s')
 
 In [4]: D(i='i', s='s')
 ---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
 ...
 ValidationError                           Traceback (most recent call last)
 Cell In[4], line 1
 ----> 1 D(i='i', s='s')
 
-File <string>:14, in __init__(__cwtch_self__, i, s, **__cwtch_kwds__)
+File <string>:12, in __init__(__cwtch_self__, i, s, **__extra_kwds__)
 
-ValidationError: type[ <class '__main__.D'> ] path[ 'i' ] value_type[ <class 'str'> ]
-  type[ <class 'int'> ] value_type[ <class 'str'> ] value[ 'i' ]
+ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
+  type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'i' ]
     Error: invalid literal for int() with base 10: 'i'
-
-In [5]: D(i='1', s=0)
-Out[5]: D(i=1, s=0)
 ```

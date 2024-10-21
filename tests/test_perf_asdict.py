@@ -8,8 +8,8 @@ RANGE = 100
 
 @pytest.mark.benchmark(
     group="asdict",
-    min_rounds=5,
-    disable_gc=True,
+    min_rounds=10,
+    # disable_gc=True,
     warmup=True,
 )
 def test_perf_dataclasses_asdict(benchmark):
@@ -22,8 +22,8 @@ def test_perf_dataclasses_asdict(benchmark):
 
 @pytest.mark.benchmark(
     group="asdict",
-    min_rounds=5,
-    disable_gc=True,
+    min_rounds=10,
+    # disable_gc=True,
     warmup=True,
 )
 def test_perf_cwtch_asdict(benchmark):
@@ -36,8 +36,8 @@ def test_perf_cwtch_asdict(benchmark):
 
 @pytest.mark.benchmark(
     group="asdict",
-    min_rounds=5,
-    disable_gc=True,
+    min_rounds=10,
+    # disable_gc=True,
     warmup=True,
 )
 def test_perf_pydantic_asdict(benchmark):

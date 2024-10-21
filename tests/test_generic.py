@@ -23,8 +23,8 @@ class TestGeneric:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'cwtch.cwtch.M[int]'> ] path[ 'l' ] value_type[ <class 'list'> ]\n"
-                    "  type[ list[int] ] path[ 0 ] value_type[ <class 'list'> ] path_value[ 'a' ]\n"
+                    "type[ <class 'cwtch.cwtch.M[int]'> ] path[ 'l' ]\n"
+                    "  type[ list[int] ] input_type[ <class 'list'> ] path[ 0 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
                     "    Error: invalid literal for int() with base 10: 'a'"
                 )
             ),
@@ -35,8 +35,8 @@ class TestGeneric:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'cwtch.cwtch.M[int]'> ] path[ 'l' ] value_type[ <class 'list'> ]\n"
-                    "  type[ list[int] ] path[ 0 ] value_type[ <class 'list'> ] path_value[ 'a' ]\n"
+                    "type[ <class 'cwtch.cwtch.M[int]'> ] path[ 'l' ]\n"
+                    "  type[ list[int] ] input_type[ <class 'list'> ] path[ 0 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
                     "    Error: invalid literal for int() with base 10: 'a'"
                 )
             ),

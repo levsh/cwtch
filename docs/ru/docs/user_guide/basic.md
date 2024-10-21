@@ -33,7 +33,7 @@ D(i=0, s='1', b=False)
 ```python
 >>> print(D(i='a', s='s', b=True))
 ...
-ValidationError: type[ <class '__main__.D'> ] path[ 'i' ] value_type[ <class 'str'> ]
-  type[ <class 'int'> ] value_type[ <class 'str'> ] value[ 'a' ]
+ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
+  type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'a' ]
     Error: invalid literal for int() with base 10: 'a'
 ```

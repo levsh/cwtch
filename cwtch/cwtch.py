@@ -190,18 +190,18 @@ def dataclass(
     ):
         return _build(
             cls,
-            slots,
+            cast(bool, slots),
             cast(
                 Unset[Sequence[str]],
                 env_prefix if env_prefix is UNSET or isinstance(env_prefix, (list, tuple, set)) else [env_prefix],
             ),
             env_source,
-            validate,
-            extra,
-            repr,
-            eq,
-            recursive,
-            handle_circular_refs,
+            cast(bool, validate),
+            cast(Literal["ignore", "forbid"], extra),
+            cast(bool, repr),
+            cast(bool, eq),
+            cast(bool, recursive),
+            cast(bool, handle_circular_refs),
         )
 
     if cls is None:
@@ -386,7 +386,7 @@ def _instantiate_generic(tp):
         bases: tuple[Type[Any], ...] = (f_v,)
 
         if Generic in f_v.__bases__:
-            bases += (Generic[*f_v.__parameters__],)
+            bases += (Generic[*f_v.__parameters__],)  # type: ignore
 
         view_cls = new_class(
             f_v.__name__,
@@ -505,7 +505,7 @@ def _get_substituted_fields(cls, fields_subst: dict[str, dict]) -> dict[str, Fie
             if f_name not in subst:
                 continue
             if getattr(f, k) != subst[f_name]:
-                new_f = new_f or copy_field(f)
+                new_f = new_f or _copy_field(f)
                 setattr(new_f, k, subst[f_name])
         if new_f:
             fields[f_name] = new_f
@@ -528,7 +528,7 @@ def _get_substituted_annotations(cls, fields_subst: dict[str, dict]) -> dict:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def copy_field(f: Field) -> Field:
+def _copy_field(f: Field) -> Field:
     new_f = Field(
         default=f.default,
         default_factory=f.default_factory,
@@ -599,12 +599,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         key=lambda name: not (fields[name].default is _MISSING and fields[name].default_factory is _MISSING),
     )
 
-    body = [
-        "if _cache_get().get(f'{_builtins_id(__cwtch_self__)}post_init'):",
-        "    return",
-    ]
-
-    body += ["__cwtch_fields_set__ = ()"]
+    body = ["__cwtch_fields_set__ = ()"]
 
     if env_prefixes is not UNSET:
         body += [
@@ -645,7 +640,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 f"{indent}    for k in __extra_kwds__:",
                 f"{indent}        if k not in allowed_extra_field_names:",
                 f"{indent}            raise TypeError(",
-                f'{indent}                f"{{__cwtch_self__.__class__.__name__}}.__init__() "',
+                f'{indent}                f"{{__class__.__name__}}.__init__() "',
                 f"{indent}                f\"got an unexpected keyword argument '{{k}}'\"",
                 f"{indent}            )",
             ]
@@ -719,7 +714,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                     f"{indent}try:",
                     f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
                     f"{indent}except (TypeError, ValueError, ValidationError) as e:",
-                    f"{indent}    raise ValidationError({f_name}, __class__, [e], path=[f_{f_name}.name])",
+                    f"{indent}    raise ValidationError(_MISSING, __class__, [e], path=[f_{f_name}.name])",
                 ]
             else:
                 body += [
@@ -727,7 +722,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 ]
             if field.property is True:
                 body += [
-                    f"__cwtch_self__.__class__.{f_name} = property(lambda self: _{f_name})",
+                    f"__class__.{f_name} = property(lambda self: _{f_name})",
                 ]
             else:
                 body += [
@@ -752,13 +747,13 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
     body += [
         "if '__post_init__' in __class__.__dict__:",
         "    try:",
-        "        __cwtch_self__.__post_init__()",
+        "        __class__.__dict__['__post_init__'](__cwtch_self__)",
         "    except ValueError as e:",
         "        raise ValidationError(",
         "            __cwtch_self__,",
-        "            __cwtch_self__.__class__,",
+        "            __class__,",
         "            [e],",
-        "            path=[f'{__cwtch_self__.__class__.__name__}.__post_init__']",
+        "            path=[f'{__class__.__name__}.__post_init__']",
         "        )",
     ]
 
@@ -853,11 +848,6 @@ def _build(
         f.name = f_name
         f.type = f_type
         __cwtch_fields__[f_name] = f
-
-    # if env_prefix is not UNSET:
-    #     for f in __cwtch_fields__.values():
-    #         if f.metadata.get("env_var", True) and f.default == _MISSING and f.default_factory == _MISSING:
-    #             raise TypeError(f"environment field[{f.name}] should has default or default_factory value")
 
     if not rebuild:
         if slots:
@@ -1026,12 +1016,12 @@ def _build_view(
     defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not is_classvar(v)}
 
     if hasattr(view_cls, "__cwtch_fields__"):
-        __cwtch_fields__ = {k: copy_field(v) for k, v in view_cls.__cwtch_fields__.items()}
+        __cwtch_fields__ = {k: _copy_field(v) for k, v in view_cls.__cwtch_fields__.items()}
     else:
         __cwtch_fields__ = {}
         for base in __bases__[::-1]:
             if hasattr(base, "__cwtch_fields__"):
-                __cwtch_fields__.update({k: copy_field(v) for k, v in base.__cwtch_fields__.items()})
+                __cwtch_fields__.update({k: _copy_field(v) for k, v in base.__cwtch_fields__.items()})
 
     for f_name, f_type in __annotations__.items():
         f = defaults.get(f_name, _MISSING)
@@ -1085,7 +1075,7 @@ def _build_view(
     view_name = __cwtch_view_params__.get("name", view_cls.__name__)
 
     include = __cwtch_view_params__.get("include", UNSET)
-    if include and (missing_fields := set(include) - __cwtch_fields__.keys()):
+    if include and (missing_fields := set(include) - __cwtch_fields__.keys()):  # type: ignore
         raise Exception(f"fields {list(missing_fields)} not present")
 
     exclude = __cwtch_view_params__.get("exclude", UNSET)
@@ -1160,7 +1150,7 @@ def _build_view(
     __class__ = view_cls  # noqa: F841
 
     def __getattribute__(self, name: str, /) -> Any:
-        result = super().__getattribute__(name)
+        result = super().__getattribute__(name)  # type: ignore
         if isinstance(result, Field) and result.name not in object.__getattribute__(self, "__cwtch_fields__"):
             try:
                 x = object.__getattribute__(self, "__dict__")

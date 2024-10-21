@@ -2,6 +2,7 @@ from textwrap import indent
 from typing import Any
 
 from cwtch.config import SHOW_INPUT_VALUE_ON_ERROR
+from cwtch.types import _MISSING
 
 
 class Error(Exception):
@@ -45,13 +46,16 @@ class ValidationError(Error):
             path = ""
             if self.path:
                 path = f" path[ {str(self.path)[1:-1]} ]"
-            value = ""
+            input_value = ""
             if show_value:
                 if self.path:
-                    value = f" path_value[ {repr(self.path_value)} ]"
+                    input_value = f" path_value[ {repr(self.path_value)} ] path_value_type[ {type(self.path_value)} ]"
                 else:
-                    value = f" value[ {repr(self.value)} ]"
-            return f"type[ {tp} ]{path} value_type[ {type(self.value)} ]{value}\n{errors}"
+                    input_value = f" input_value[ {repr(self.value)} ]"
+            input_type = ""
+            if self.value != _MISSING:
+                input_type = f" input_type[ {type(self.value)} ]"
+            return f"type[ {tp} ]{input_type}{path}{input_value}\n{errors}"
         except Exception as e:
             return f"cwtch internal error: {e}\noriginal errors: {self.errors}"
 
@@ -78,12 +82,15 @@ class ValidationError(Error):
             path = ""
             if self.path:
                 path = f" path[ {str(self.path)[1:-1]} ]"
-            value = ""
+            input_value = ""
             if show_value:
                 if self.path:
-                    value = f" path_value[ {repr(self.path_value)} ]"
+                    input_value = f" path_value[ {repr(self.path_value)} ] path_value_type[ {type(self.path_value)} ]"
                 else:
-                    value = f" value[ {repr(self.value)} ]"
-            return f"type[ {tp} ]{path} value_type[ {type(self.value)} ]{value}\n{errors}"
+                    input_value = f" input_value[ {repr(self.value)} ]"
+            input_type = ""
+            if self.value != _MISSING:
+                input_type = f" input_type[ {type(self.value)} ]"
+            return f"type[ {tp} ]{input_type}{path}{input_value}\n{errors}"
         except Exception as e:
             return f"cwtch internal error: {e}\noriginal errors: {self.errors}"

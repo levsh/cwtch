@@ -4,12 +4,14 @@
 # distutils: language=c
 
 import functools
+import types
+import typing
+
 from abc import ABCMeta
 from collections.abc import Mapping
 from contextvars import ContextVar
 from datetime import date, datetime
 from enum import Enum, EnumType
-from types import UnionType
 from typing import (
     Any,
     GenericAlias,
@@ -28,10 +30,11 @@ from uuid import UUID
 
 import cython
 
+from typing_extensions import Doc
+
 from .errors import ValidationError
 from .metadata import TypeMetadata
-from .types import UNSET, UnsetType, _MISSING, AsDictKwds
-from typing_extensions import Doc
+from .types import _MISSING, UNSET, AsDictKwds, UnsetType
 
 
 __all__ = (
@@ -187,7 +190,9 @@ def validate_float(value, T, /):
 
 @cython.cfunc
 def validate_str(value, T, /):
-    return f"{value}"
+    if not isinstance(value, str):
+        raise ValueError(f"value is not a valid {T}")
+    return value
 
 
 @cython.cfunc
@@ -528,8 +533,10 @@ def validate_dict(value, T, /):
         try:
             if T_k == str:
                 if origin_v:
-                    return {f"{k}": validator_v(v, T_v) for k, v in value.items()}
-                return {f"{k}": v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()}
+                    return {validate_str(k, T_k): validator_v(v, T_v) for k, v in value.items()}
+                return {
+                    validate_str(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()
+                }
             origin_k = getattr(T_k, "__origin__", None)
             validator_k = get_validator(origin_k or T_k)
             if origin_k is None and origin_v is None:
@@ -549,10 +556,10 @@ def validate_dict(value, T, /):
                     validator_k(k, T_k)
                 except (TypeError, ValueError, ValidationError) as e:
                     if isinstance(e, ValidationError) and e.path:
-                        path = [k] + e.path
+                        path = ["$", k] + e.path
                         raise ValidationError(value, T, [e], path=path)
                     else:
-                        path = [k]
+                        path = ["$", k]
                         raise ValidationError(value, T, [e], path=path, path_value=k)
                 try:
                     validator_v(v, T_v)
@@ -579,8 +586,10 @@ def validate_mapping(value, T, /):
         try:
             if T_k == str:
                 if origin_v:
-                    return {f"{k}": validator_v(v, T_v) for k, v in value.items()}
-                return {f"{k}": v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()}
+                    return {validate_str(k, T_k): validator_v(v, T_v) for k, v in value.items()}
+                return {
+                    validate_str(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()
+                }
             origin_k = getattr(T_k, "__origin__", None)
             validator_k = get_validator(origin_k or T_k)
             if origin_k is None and origin_v is None:
@@ -600,10 +609,10 @@ def validate_mapping(value, T, /):
                     validator_k(k, T_k)
                 except (TypeError, ValueError, ValidationError) as e:
                     if isinstance(e, ValidationError) and e.path:
-                        path = [k] + e.path
+                        path = ["$", k] + e.path
                         raise ValidationError(value, T, [e], path=path)
                     else:
-                        path = [k]
+                        path = ["$", k]
                         raise ValidationError(value, T, [e], path=path, path_value=k)
                 try:
                     validator_v(v, T_v)
@@ -728,7 +737,8 @@ def __():
     validators_map[_SpecialGenericAlias] = validate_generic_alias
     validators_map[_LiteralGenericAlias] = validate_literal
     validators_map[_CallableType] = validate_callable
-    validators_map[UnionType] = validate_union
+    validators_map[types.UnionType] = validate_union
+    validators_map[typing.Union] = validate_union
     validators_map[_UnionGenericAlias] = validate_union
     validators_map[ABCMeta] = validate_abcmeta
     validators_map[datetime] = validate_datetime
@@ -737,7 +747,7 @@ def __():
 
     validators_map_get = validators_map.get
 
-    @functools.cache
+    # @functools.cache
     def get_validator(T: Type, /) -> Callabel[[Any, Type], Any]:
         return validators_map_get(T) or validators_map_get(T.__class__) or default_validator
 
@@ -934,7 +944,8 @@ def __():
     json_schema_builders_map[_GenericAlias] = make_json_schema_generic_alias
     json_schema_builders_map[_SpecialGenericAlias] = make_json_schema_generic_alias
     json_schema_builders_map[_LiteralGenericAlias] = make_json_schema_literal
-    json_schema_builders_map[UnionType] = make_json_schema_union
+    json_schema_builders_map[types.UnionType] = make_json_schema_union
+    json_schema_builders_map[typing.Union] = make_json_schema_union
     json_schema_builders_map[_UnionGenericAlias] = make_json_schema_union
     json_schema_builders_map[datetime] = make_json_schema_datetime
     json_schema_builders_map[date] = make_json_schema_date
