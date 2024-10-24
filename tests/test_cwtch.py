@@ -9,20 +9,10 @@ import pytest
 from typing_extensions import Doc
 
 from cwtch import asdict, dataclass, field, make_json_schema, validate_args, validate_value, view
+from cwtch.core import _MISSING
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
-from cwtch.types import (
-    _MISSING,
-    UNSET,
-    LowerStr,
-    StrictBool,
-    StrictFloat,
-    StrictInt,
-    StrictNumber,
-    StrictStr,
-    Unset,
-    UpperStr,
-)
+from cwtch.types import UNSET, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, Unset, UpperStr
 
 
 T = TypeVar("T")
@@ -582,8 +572,8 @@ class TestModel:
         assert B.__bases__ == (A,)
         assert B.__mro__ == (B, A, object)
 
-        assert B.__cwtch_fields__["i"].type == float
-        assert B.__cwtch_fields__["s"].type == str
+        assert B.__dataclass_fields__["i"].type == float
+        assert B.__dataclass_fields__["s"].type == str
 
     def test_generic(self):
         @dataclass
@@ -723,6 +713,37 @@ class TestModel:
         assert d.ref1 == "abc"
         assert d.ref2 == "def"
 
+    def test_eq(self):
+        @dataclass
+        class M:
+            i: int
+            s: str
+
+        assert M(i=0, s="a") == M(i=0, s="a")
+        assert M(i=0, s="a") != M(i=1, s="a")
+        assert M(i=0, s="a") != M(i=0, s="b")
+
+        @dataclass
+        class M:
+            i: int
+            s: str = field(compare=False)
+
+        assert M(i=0, s="a") == M(i=0, s="a")
+        assert M(i=0, s="a") == M(i=0, s="b")
+        assert M(i=0, s="a") != M(i=1, s="a")
+
+        @dataclass
+        class A:
+            i: int
+            s: str
+
+        @dataclass
+        class B:
+            i: int
+            s: str
+
+        assert A(i=0, s="a") != B(i=0, s="a")
+
 
 class TestView:
     def test_view(self):
@@ -750,60 +771,60 @@ class TestView:
             f: float = 0.1
 
         assert M.__annotations__ == {"i": int, "s": str, "b": bool, "l": Optional[list[int]]}
-        assert list(M.__cwtch_fields__.keys()) == ["i", "s", "b", "l"]
+        assert list(M.__dataclass_fields__.keys()) == ["i", "s", "b", "l"]
 
         assert M.V1
         assert M.V1.__cwtch_view_name__ == "V1"
         assert M.V1.__cwtch_view_base__ == M
         assert id(M.V1.__annotations__) != id(M.__annotations__)
         assert M.V1.__annotations__ == {}
-        assert id(M.V1.__cwtch_fields__) != id(M.__cwtch_fields__)
-        assert M.V1.__cwtch_fields__ == M.__cwtch_fields__
+        assert id(M.V1.__dataclass_fields__) != id(M.__dataclass_fields__)
+        assert M.V1.__dataclass_fields__ == M.__dataclass_fields__
 
         assert M.V2
         assert M.V2.__cwtch_view_name__ == "V2"
         assert M.V2.__cwtch_view_base__ == M
         assert id(M.V2.__annotations__) != id(M.__annotations__)
         assert M.V2.__annotations__ == {"i": int}
-        assert id(M.V2.__cwtch_fields__) != id(M.__cwtch_fields__)
-        assert list(M.V2.__cwtch_fields__.keys()) == ["i"]
-        assert M.V2.__cwtch_fields__["i"].name == "i"
-        assert M.V2.__cwtch_fields__["i"].type == int
-        assert M.V2.__cwtch_fields__["i"].default == 0
-        assert M.V2.__cwtch_fields__["i"].default_factory == _MISSING
-        assert M.V2.__cwtch_fields__["i"].init == True
-        assert M.V2.__cwtch_fields__["i"].repr == UNSET
-        assert M.V2.__cwtch_fields__["i"].metadata == {}
+        assert id(M.V2.__dataclass_fields__) != id(M.__dataclass_fields__)
+        assert list(M.V2.__dataclass_fields__.keys()) == ["i"]
+        assert M.V2.__dataclass_fields__["i"].name == "i"
+        assert M.V2.__dataclass_fields__["i"].type == int
+        assert M.V2.__dataclass_fields__["i"].default == 0
+        assert M.V2.__dataclass_fields__["i"].default_factory == _MISSING
+        assert M.V2.__dataclass_fields__["i"].init == True
+        assert M.V2.__dataclass_fields__["i"].repr == UNSET
+        assert M.V2.__dataclass_fields__["i"].metadata == {}
 
         assert M.V3
         assert M.V3.__cwtch_view_name__ == "V3"
         assert M.V3.__cwtch_view_base__ == M
         assert id(M.V3.__annotations__) != id(M.__annotations__)
         assert M.V3.__annotations__ == {"i": int}
-        assert id(M.V3.__cwtch_fields__) != id(M.__cwtch_fields__)
-        assert list(M.V3.__cwtch_fields__.keys()) == ["i"]
-        assert M.V3.__cwtch_fields__["i"].name == "i"
-        assert M.V3.__cwtch_fields__["i"].type == int
-        assert M.V3.__cwtch_fields__["i"].default == 0
-        assert M.V3.__cwtch_fields__["i"].default_factory == _MISSING
-        assert M.V3.__cwtch_fields__["i"].init == True
-        assert M.V3.__cwtch_fields__["i"].repr == UNSET
-        assert M.V3.__cwtch_fields__["i"].metadata == {}
+        assert id(M.V3.__dataclass_fields__) != id(M.__dataclass_fields__)
+        assert list(M.V3.__dataclass_fields__.keys()) == ["i"]
+        assert M.V3.__dataclass_fields__["i"].name == "i"
+        assert M.V3.__dataclass_fields__["i"].type == int
+        assert M.V3.__dataclass_fields__["i"].default == 0
+        assert M.V3.__dataclass_fields__["i"].default_factory == _MISSING
+        assert M.V3.__dataclass_fields__["i"].init == True
+        assert M.V3.__dataclass_fields__["i"].repr == UNSET
+        assert M.V3.__dataclass_fields__["i"].metadata == {}
 
         assert M.V4
         assert M.V4.__cwtch_view_name__ == "V4"
         assert M.V4.__cwtch_view_base__ == M
         assert id(M.V4.__annotations__) != id(M.__annotations__)
         assert M.V4.__annotations__ == {"f": float}
-        assert id(M.V4.__cwtch_fields__) != id(M.__cwtch_fields__)
-        assert list(M.V4.__cwtch_fields__.keys()) == ["i", "f"]
-        assert M.V4.__cwtch_fields__["i"].name == "i"
-        assert M.V4.__cwtch_fields__["i"].type == int
-        assert M.V4.__cwtch_fields__["i"].default == _MISSING
-        assert M.V4.__cwtch_fields__["i"].default_factory == _MISSING
-        assert M.V4.__cwtch_fields__["i"].init == True
-        assert M.V4.__cwtch_fields__["i"].repr == UNSET
-        assert M.V4.__cwtch_fields__["i"].metadata == {}
+        assert id(M.V4.__dataclass_fields__) != id(M.__dataclass_fields__)
+        assert list(M.V4.__dataclass_fields__.keys()) == ["i", "f"]
+        assert M.V4.__dataclass_fields__["i"].name == "i"
+        assert M.V4.__dataclass_fields__["i"].type == int
+        assert M.V4.__dataclass_fields__["i"].default == _MISSING
+        assert M.V4.__dataclass_fields__["i"].default_factory == _MISSING
+        assert M.V4.__dataclass_fields__["i"].init == True
+        assert M.V4.__dataclass_fields__["i"].repr == UNSET
+        assert M.V4.__dataclass_fields__["i"].metadata == {}
 
         m = M(i="1", s="1", b="n", l=["1", "2"])
         assert m.i == 1
@@ -915,8 +936,8 @@ class TestView:
         class BV(B):
             pass
 
-        assert B.__cwtch_fields__["a"].type == Optional[list[A]]
-        assert B.V.__cwtch_fields__["a"].type == Optional[list[A.V]]
+        assert B.__dataclass_fields__["a"].type == Optional[list[A]]
+        assert B.V.__dataclass_fields__["a"].type == Optional[list[A.V]]
 
     def test_inheritance(self):
         @dataclass

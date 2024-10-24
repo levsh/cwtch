@@ -2,7 +2,6 @@ from textwrap import indent
 from typing import Any
 
 from cwtch.config import SHOW_INPUT_VALUE_ON_ERROR
-from cwtch.types import _MISSING
 
 
 class Error(Exception):
@@ -53,7 +52,7 @@ class ValidationError(Error):
                 else:
                     input_value = f" input_value[ {repr(self.value)} ]"
             input_type = ""
-            if self.value != _MISSING:
+            if self.value != ...:
                 input_type = f" input_type[ {type(self.value)} ]"
             return f"type[ {tp} ]{input_type}{path}{input_value}\n{errors}"
         except Exception as e:
@@ -89,7 +88,7 @@ class ValidationError(Error):
                 else:
                     input_value = f" input_value[ {repr(self.value)} ]"
             input_type = ""
-            if self.value != _MISSING:
+            if self.value != ...:
                 input_type = f" input_type[ {type(self.value)} ]"
             return f"type[ {tp} ]{input_type}{path}{input_value}\n{errors}"
         except Exception as e:

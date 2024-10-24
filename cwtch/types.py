@@ -1,59 +1,15 @@
 import re
 
-from collections import namedtuple
 from functools import lru_cache
 from ipaddress import ip_address
 from typing import Annotated, TypeVar
 from urllib.parse import urlparse
 
+from cwtch.core import UNSET, AsDictKwds, Unset, UnsetType  # noqa
 from cwtch.metadata import Ge, MinItems, MinLen, Strict, ToLower, ToUpper
 
 
 T = TypeVar("T")
-
-
-class _MissingType:
-    def __copy__(self, *args, **kwds):
-        return self
-
-    def __deepcopy__(self, *args, **kwds):
-        return self
-
-    def __bool__(self):
-        return False
-
-    def __str__(self):
-        return "_MISSING"
-
-    def __repr__(self):
-        return "_MISSING"
-
-
-_MISSING = _MissingType()
-
-Missing = T | _MissingType
-
-
-class UnsetType:
-    def __copy__(self, *args, **kwds):
-        return self
-
-    def __deepcopy__(self, *args, **kwds):
-        return self
-
-    def __bool__(self):
-        return False
-
-    def __str__(self):
-        return "UNSET"
-
-    def __repr__(self):
-        return "UNSET"
-
-
-UNSET = UnsetType()
-
-Unset = T | UnsetType
 
 
 Number = int | float
@@ -74,10 +30,9 @@ StrictStr = Annotated[str, Strict(str)]
 StrictBool = Annotated[bool, Strict(bool)]
 
 
-AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
-
-
 class SecretBytes(bytes):
+    """Type to represent secret bytes."""
+
     def __new__(cls, value):
         obj = super().__new__(cls, b"***")
         obj._value = value
@@ -109,11 +64,13 @@ class SecretBytes(bytes):
             return self.get_secret_value()
         return self
 
-    def get_secret_value(self) -> str:
+    def get_secret_value(self) -> bytes:
         return self._value
 
 
 class SecretStr(str):
+    """Type to represent secret string."""
+
     __slots__ = ("_value",)
 
     def __new__(cls, value):
@@ -147,6 +104,11 @@ class SecretStr(str):
             return self.get_secret_value()
         return self
 
+    def __cwtch_asjson__(self, context: dict | None = None):
+        if (context or {}).get("show_secrets"):
+            return self.get_secret_value()
+        return f"{self}"
+
     def get_secret_value(self) -> str:
         return self._value
 
@@ -167,47 +129,53 @@ def _validate_hostname(hostname: str):
 class _UrlMixIn:
     @property
     def scheme(self) -> str | None:
-        return self._url.scheme  # type: ignore
+        return self._parsed.scheme  # type: ignore
 
     @property
     def username(self) -> str | None:
-        return self._url.username  # type: ignore
+        return self._parsed.username  # type: ignore
 
     @property
     def password(self) -> str | None:
-        return self._url.password  # type: ignore
+        return self._parsed.password  # type: ignore
 
     @property
     def hostname(self) -> str:
-        return self._url.hostname  # type: ignore
+        return self._parsed.hostname  # type: ignore
 
     @property
     def port(self) -> int | None:
-        return self._url.port  # type: ignore
+        return self._parsed.port  # type: ignore
 
     @property
     def path(self) -> str | None:
-        return self._url.path  # type: ignore
+        return self._parsed.path  # type: ignore
 
     @property
     def query(self) -> str | None:
-        return self._url.query  # type: ignore
+        return self._parsed.query  # type: ignore
 
     @property
     def fragment(self) -> str | None:
-        return self._url.fragment  # type: ignore
+        return self._parsed.fragment  # type: ignore
 
 
 class Url(str, _UrlMixIn):
-    __slots__ = ("_url",)
+    """Type to represent URL."""
 
-    def __init__(self, value):
+    __slots__ = ("_parsed",)
+
+    def __new__(cls, value):
         try:
-            self._url = urlparse(value)
+            parsed = urlparse(value)
         except Exception as e:
             raise ValueError(e)
-        if self.hostname:
-            _validate_hostname(self.hostname)
+        if parsed.hostname:
+            _validate_hostname(parsed.hostname)
+
+        obj = super().__new__(cls, parsed.geturl())
+        obj._parsed = parsed
+        return obj
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self})"
@@ -216,38 +184,45 @@ class Url(str, _UrlMixIn):
     def __cwtch_json_schema__(cls, **kwds) -> dict:
         return {"type": "string", "format": "uri"}
 
+    def __cwtch_asjson__(self, context: dict | None = None):
+        return f"{self}"
+
 
 class SecretUrl(str, _UrlMixIn):
-    __slots__ = ("_value", "_url")
+    """Type to represent secret URL."""
+
+    __slots__ = ("_parsed", "_value")
 
     def __new__(cls, value):
         try:
-            url = urlparse(value)
+            parsed = urlparse(value)
         except Exception as e:
             raise ValueError(e)
-        if url.hostname:
-            _validate_hostname(url.hostname)
+        if parsed.hostname:
+            _validate_hostname(parsed.hostname)
 
         obj = super().__new__(
             cls,
             (
-                url._replace(
-                    netloc=f"***:***@{url.hostname}" + (f":{url.port}" if url.port is not None else "")
+                parsed._replace(
+                    netloc=f"***:***@{parsed.hostname}" + (f":{parsed.port}" if parsed.port is not None else "")
                 ).geturl()
-                if url.scheme
-                else url.geturl()
+                if parsed.scheme
+                else parsed.geturl()
             ),
         )
-        obj._value = value
-        obj._url = url
+        obj._parsed = parsed
+        obj._value = parsed.geturl()
         return obj
 
     def __repr__(self):
-        url = self._url
+        parsed = self._parsed
         value = (
-            url._replace(netloc=f"***:***@{url.hostname}" + (f":{url.port}" if url.port is not None else "")).geturl()
-            if url.scheme
-            else url.geturl()
+            parsed._replace(
+                netloc=f"***:***@{parsed.hostname}" + (f":{parsed.port}" if parsed.port is not None else "")
+            ).geturl()
+            if parsed.scheme
+            else parsed.geturl()
         )
         return f"{self.__class__.__name__}({value})"
 
@@ -267,11 +242,11 @@ class SecretUrl(str, _UrlMixIn):
 
     @property
     def username(self):
-        return "***" if self._url.username else None
+        return "***" if self._parsed.username else None
 
     @property
     def password(self):
-        return "***" if self._url.password else None
+        return "***" if self._parsed.password else None
 
     @classmethod
     def __cwtch_json_schema__(cls, **kwds) -> dict:
@@ -281,6 +256,11 @@ class SecretUrl(str, _UrlMixIn):
         if (kwds.context or {}).get("show_secrets"):
             return self.get_secret_value()
         return self
+
+    def __cwtch_asjson__(self, context: dict | None = None):
+        if (context or {}).get("show_secrets"):
+            return self.get_secret_value()
+        return f"{self}"
 
     def get_secret_value(self) -> str:
         return self._value

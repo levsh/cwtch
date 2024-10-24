@@ -73,53 +73,53 @@ class TestGeneric:
 
         assert M[int]
 
-        assert M.__cwtch_fields__["t"].type == T
+        assert M.__dataclass_fields__["t"].type == T
         assert M(t="1").t == "1"
 
-        assert M[int].__cwtch_fields__["t"].type == int
+        assert M[int].__dataclass_fields__["t"].type == int
         assert M[int](t="1").t == 1
 
-        assert M.V1.__cwtch_fields__["t"].type == T
-        assert M.V1.__cwtch_fields__["f"].type == F
+        assert M.V1.__dataclass_fields__["t"].type == T
+        assert M.V1.__dataclass_fields__["f"].type == F
 
-        assert M[int].V1.__cwtch_fields__["t"].type == int
-        assert M[int].V1.__cwtch_fields__["f"].type == F
+        assert M[int].V1.__dataclass_fields__["t"].type == int
+        assert M[int].V1.__dataclass_fields__["f"].type == F
         assert M[int].V1(t="1", f="2.2").t == 1
         assert M[int].V1(t="1", f="2.2").f == "2.2"
 
-        assert M[int].V1[float].__cwtch_fields__["t"].type == int
-        assert M[int].V1[float].__cwtch_fields__["f"].type == float
+        assert M[int].V1[float].__dataclass_fields__["t"].type == int
+        assert M[int].V1[float].__dataclass_fields__["f"].type == float
         assert M[int].V1[float](t="1", f="2.2").t == 1
         assert M[int].V1[float](t="1", f="2.2").f == 2.2
 
-        assert "t" not in M.V2.__cwtch_fields__
-        assert M.V2.__cwtch_fields__["f"].type == float
+        assert "t" not in M.V2.__dataclass_fields__
+        assert M.V2.__dataclass_fields__["f"].type == float
         assert M.V2(f="2.2").f == 2.2
 
-        assert "t" not in M[int].V2.__cwtch_fields__
-        assert M[int].V2.__cwtch_fields__["f"].type == float
+        assert "t" not in M[int].V2.__dataclass_fields__
+        assert M[int].V2.__dataclass_fields__["f"].type == float
         assert M[int].V2(f="2.2").f == 2.2
 
-        assert "t" not in M.V3.__cwtch_fields__
-        assert M.V3.__cwtch_fields__["f"].type == F
+        assert "t" not in M.V3.__dataclass_fields__
+        assert M.V3.__dataclass_fields__["f"].type == F
         assert M.V3(f="2.2").f == "2.2"
-        assert M[int].V3.__cwtch_fields__["f"].type == F
+        assert M[int].V3.__dataclass_fields__["f"].type == F
         assert M[int].V3(f="2.2").f == "2.2"
-        assert M[int].V3[float].__cwtch_fields__["f"].type == float
+        assert M[int].V3[float].__dataclass_fields__["f"].type == float
         assert M[int].V3[float](f="2.2").f == 2.2
 
-        assert M.V4.__cwtch_fields__["t"].type == T
-        assert M.V4.__cwtch_fields__["t"].default == 0
+        assert M.V4.__dataclass_fields__["t"].type == T
+        assert M.V4.__dataclass_fields__["t"].default == 0
         assert M.V4(t="1").t == "1"
-        assert M[int].V4.__cwtch_fields__["t"].type == int
-        assert M[int].V4.__cwtch_fields__["t"].default == 0
+        assert M[int].V4.__dataclass_fields__["t"].type == int
+        assert M[int].V4.__dataclass_fields__["t"].default == 0
         assert M[int].V4(t="1").t == 1
 
-        assert M.V5.__cwtch_fields__["t"].type == T
-        assert M.V5.__cwtch_fields__["t"].default == 0
+        assert M.V5.__dataclass_fields__["t"].type == T
+        assert M.V5.__dataclass_fields__["t"].default == 0
         assert M.V5(t="1").t == "1"
-        assert M[int].V5.__cwtch_fields__["t"].type == int
-        assert M[int].V5.__cwtch_fields__["t"].default == 0
+        assert M[int].V5.__dataclass_fields__["t"].type == int
+        assert M[int].V5.__dataclass_fields__["t"].default == 0
         assert M[int].V5(t="1").t == 1
 
     def test_inheritance(self):
@@ -142,10 +142,10 @@ class TestGeneric:
         class BV(B):
             x: bool
 
-        assert A.__cwtch_fields__["x"].type == T
-        assert A.V.__cwtch_fields__["x"].type == int
-        assert B.__cwtch_fields__["x"].type == str
-        assert B.V.__cwtch_fields__["x"].type == bool
+        assert A.__dataclass_fields__["x"].type == T
+        assert A.V.__dataclass_fields__["x"].type == int
+        assert B.__dataclass_fields__["x"].type == str
+        assert B.V.__dataclass_fields__["x"].type == bool
 
     def test_default_factory(self):
         T = TypeVar("T")

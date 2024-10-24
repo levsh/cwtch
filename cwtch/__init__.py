@@ -7,6 +7,7 @@ from cwtch.cwtch import (
     Field,
     asdict,
     dataclass,
+    dumps,
     field,
     from_attributes,
     resolve_types,

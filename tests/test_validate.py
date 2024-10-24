@@ -25,7 +25,7 @@ class TestValidateValue:
         assert validate_value(UNSET, UnsetType) is UNSET
         for value in (0, 0.0, 1000, ..., "a", True, False, None, object(), (), [], {}, int):
             with pytest.raises(
-                ValidationError, match=re.escape("Error: value is not a valid <class 'cwtch.types.UnsetType'>")
+                ValidationError, match=re.escape("Error: value is not a valid <class 'cwtch.core.UnsetType'>")
             ):
                 validate_value(value, UnsetType)
 

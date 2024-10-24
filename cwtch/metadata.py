@@ -6,21 +6,10 @@ import typing
 
 from typing import Any, Type, TypeVar
 
+from cwtch.core import TypeMetadata
+
 
 T = TypeVar("T")
-
-
-class TypeMetadata:
-    """Base class for type metadata."""
-
-    def json_schema(self) -> dict:
-        return {}
-
-    def before(self, value, /):
-        return value
-
-    def after(self, value, /):
-        return value
 
 
 @typing.final

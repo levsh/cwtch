@@ -19,6 +19,7 @@ include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11, <4.0"
+orjson = "*"
 rich = "*"
 
 [tool.poetry.group.test.dependencies]

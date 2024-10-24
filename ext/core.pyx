@@ -8,6 +8,7 @@ import types
 import typing
 
 from abc import ABCMeta
+from collections import namedtuple
 from collections.abc import Mapping
 from contextvars import ContextVar
 from datetime import date, datetime
@@ -29,12 +30,11 @@ from typing import (
 from uuid import UUID
 
 import cython
+import orjson
 
 from typing_extensions import Doc
 
 from .errors import ValidationError
-from .metadata import TypeMetadata
-from .types import _MISSING, UNSET, AsDictKwds, UnsetType
 
 
 __all__ = (
@@ -65,14 +65,84 @@ TRUE_MAP = (True, 1, "1", "true", "t", "y", "yes", "True", "TRUE", "Y", "Yes", "
 FALSE_MAP = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No", "NO")
 
 
+T = TypeVar("T")
+
+
+class _MissingType:
+    """Type to mark value as missing. Internal use only."""
+
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
+
+    def __bool__(self):
+        return False
+
+    def __str__(self):
+        return "_MISSING"
+
+    def __repr__(self):
+        return "_MISSING"
+
+
+_MISSING = _MissingType()
+
+Missing = T | _MissingType
+
+
+class UnsetType:
+    """Type to mark value as unset."""
+
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
+
+    def __bool__(self):
+        return False
+
+    def __str__(self):
+        return "UNSET"
+
+    def __repr__(self):
+        return "UNSET"
+
+    def __cwtch_json_schema__(self, context=None):
+        return {}
+
+
+UNSET = UnsetType()
+
+Unset = T | UnsetType
+
+
+AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
+
+
+class TypeMetadata:
+    """Base class for type metadata."""
+
+    def json_schema(self) -> dict:
+        return {}
+
+    def before(self, value, /):
+        return value
+
+    def after(self, value, /):
+        return value
+
+
 @cython.cfunc
 def asdict_handler(inst, kwds):
-    if (cwtch_fields := getattr(inst, "__cwtch_fields__", None)) is None:
+    if (fields := getattr(inst, "__dataclass_fields__", None)) is None:
         return inst
 
     data = {}
 
-    for k in cwtch_fields:
+    for k in fields:
         v = getattr(inst, k, None)
         if kwds.exclude_unset and v is UNSET:
             continue
@@ -108,7 +178,7 @@ def _asdict_handler(inst, kwds):
 
 @cython.cfunc
 def asdict_root_handler(inst, kwds):
-    if (keys := getattr(inst, "__cwtch_fields__", None)) is None:
+    if (keys := getattr(inst, "__dataclass_fields__", None)) is None:
         if isinstance(inst, dict):
             keys = inst
         else:
@@ -209,7 +279,7 @@ def validate_type(value, T, /):
     if (origin := getattr(T, "__origin__", T)) == T:
         if isinstance(value, origin):
             return value
-    if (cwtch_fields := getattr(origin, "__cwtch_fields__", None)) is not None:
+    if (fields := getattr(origin, "__dataclass_fields__", None)) is not None:
         if getattr(origin, "__cwtch_handle_circular_refs__", None):
             cache = CACHE.get()
             cache_key = (T, id(value))
@@ -217,7 +287,7 @@ def validate_type(value, T, /):
                 return cache_value if not cache["reset_circular_refs"] else UNSET
         if isinstance(value, dict):
             return PyObject_Call(origin, (), value)
-        kwds = {f_name: v for f_name in cwtch_fields if (v := getattr(value, f_name, _MISSING)) is not _MISSING}
+        kwds = {f_name: v for f_name in fields if (v := getattr(value, f_name, _MISSING)) is not _MISSING}
         return PyObject_Call(origin, (), kwds)
     if T == UnsetType:
         if value != UNSET:
@@ -713,7 +783,6 @@ def default_validator(value, T, /):
 
 
 def __():
-
     validators_map = {}
 
     validators_map[None] = validate_none
@@ -906,7 +975,7 @@ def __():
         properties = {}
         required = []
         origin = getattr(T, "__origin__", T)
-        for f in origin.__cwtch_fields__.values():
+        for f in origin.__dataclass_fields__.values():
             tp = f.type
             f_schema, f_refs = make_json_schema(tp, ref_builder=ref_builder, context=context, default=default)
             properties[f.name] = f_schema
@@ -1002,3 +1071,21 @@ def __():
     register_json_schema_builder,
     asdict,
 ) = __()
+
+
+def dumps_json(obj, default, context) -> bytes:
+    if default:
+
+        def _default(obj):
+            if handler := (getattr(obj, "__cwtch_asjson__", None) or getattr(obj, "__cwtch_asdict__", None)):
+                return handler(context=context)
+            return default(obj)
+
+    else:
+
+        def _default(obj):
+            if handler := (getattr(obj, "__cwtch_asjson__", None) or getattr(obj, "__cwtch_asdict__", None)):
+                return handler(context=context)
+            raise TypeError
+
+    return orjson.dumps(obj, default=_default, option=orjson.OPT_PASSTHROUGH_SUBCLASS)

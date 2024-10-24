@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 import functools
 import json
 import os
@@ -5,21 +7,32 @@ import typing
 
 from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import _FIELD, _DataclassParams
 from inspect import _empty, signature
 from types import UnionType, new_class
 from typing import Any, Callable, ClassVar, Generic, Literal, Type, Union, cast
 
 import rich.repr
 
-from cwtch.config import EQ, EXTRA, HANDLE_CIRCULAR_REFS, RECURSIVE, REPR, SHOW_INPUT_VALUE_ON_ERROR, SLOTS, VALIDATE
-from cwtch.core import CACHE
+from cwtch.config import (
+    ATTACH,
+    EQ,
+    EXTRA,
+    HANDLE_CIRCULAR_REFS,
+    RECURSIVE,
+    REPR,
+    SHOW_INPUT_VALUE_ON_ERROR,
+    SLOTS,
+    VALIDATE,
+)
+from cwtch.core import _MISSING, CACHE, UNSET, Missing, Unset, UnsetType
 from cwtch.core import asdict as _asdict
+from cwtch.core import dumps_json as _dumps_json
 from cwtch.core import get_validator, validate_value, validate_value_using_validator
 from cwtch.errors import ValidationError
-from cwtch.types import _MISSING, UNSET, Missing, Unset, UnsetType
 
 
-def is_classvar(tp) -> bool:
+def _is_classvar(tp) -> bool:
     return getattr(tp, "__origin__", tp) is ClassVar
 
 
@@ -36,6 +49,21 @@ def is_cwtch_view(cls) -> bool:
 
 @rich.repr.auto
 class Field:
+    __slots__ = (
+        "name",
+        "type",
+        "default",
+        "default_factory",
+        "init",
+        "init_alias",
+        "repr",
+        "compare",
+        "property",
+        "validate",
+        "metadata",
+        "_field_type",
+    )
+
     def __init__(
         self,
         *,
@@ -44,6 +72,7 @@ class Field:
         init: bool = True,
         init_alias: Unset[str] = UNSET,
         repr: Unset[Literal[False]] = UNSET,
+        compare: Unset[bool] = UNSET,
         property: Unset[Literal[True]] = UNSET,
         validate: Unset[bool] = UNSET,
         metadata: Unset[dict] = UNSET,
@@ -55,9 +84,11 @@ class Field:
         self.init = init
         self.init_alias = init_alias
         self.repr = repr
+        self.compare = compare
         self.property = property
         self.validate = validate
         self.metadata = {} if metadata is UNSET else metadata
+        self._field_type = None
 
     def __rich_repr__(self):
         yield "name", self.name
@@ -67,6 +98,7 @@ class Field:
         yield "init", self.init
         yield "init_alias", self.init_alias
         yield "repr", self.repr
+        yield "compare", self.compare
         yield "property", self.property
         yield "validate", self.validate
         yield "metadata", self.metadata
@@ -82,9 +114,11 @@ class Field:
             self.init,
             self.init_alias,
             self.repr,
+            self.compare,
             self.property,
             self.validate,
             self.metadata,
+            self._field_type,
         ) == (
             other.name,
             other.type,
@@ -93,9 +127,11 @@ class Field:
             other.init,
             other.init_alias,
             other.repr,
+            other.compare,
             other.property,
             other.validate,
             other.metadata,
+            other._field_type,
         )
 
 
@@ -109,6 +145,7 @@ def field(
     init: bool = True,
     init_alias: Unset[str] = UNSET,
     repr: Unset[Literal[False]] = UNSET,
+    compare: Unset[bool] = UNSET,
     property: Unset[Literal[True]] = UNSET,
     validate: Unset[bool] = UNSET,
     metadata: Unset[dict] = UNSET,
@@ -119,6 +156,7 @@ def field(
         init=init,
         init_alias=init_alias,
         repr=repr,
+        compare=compare,
         property=property,
         validate=validate,
         metadata=metadata,
@@ -216,6 +254,7 @@ def dataclass(
 def view(
     view_cls_or_view_name=UNSET,
     *,
+    attach: Unset[bool] = UNSET,
     include: Unset[Sequence[str]] = UNSET,
     exclude: Unset[Sequence[str]] = UNSET,
     slots: Unset[bool] = UNSET,
@@ -260,10 +299,14 @@ def view(
     else:
         view_name = UNSET
 
+    if attach is UNSET:
+        attach = ATTACH
+
     def wrapper(
         view_cls,
         *,
         name=view_name,
+        attach=attach,
         include=include,
         exclude=exclude,
         slots=slots,
@@ -291,6 +334,7 @@ def view(
             cls,
             view_cls,
             name,
+            attach,
             include,
             exclude,
             slots,
@@ -316,7 +360,7 @@ def view(
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-class ViewDesc:
+class _ViewDesc:
     def __init__(self, view_cls: Type):
         self.view_cls = view_cls
 
@@ -324,21 +368,21 @@ class ViewDesc:
         view_cls = self.view_cls
         if obj:
             # TODO
-            return lambda: view_cls(**{k: v for k, v in _asdict(obj).items() if k in view_cls.__cwtch_fields__})
+            return lambda: view_cls(**{k: v for k, v in _asdict(obj).items() if k in view_cls.__dataclass_fields__})
         return view_cls
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def default_env_source() -> dict:
+def _default_env_source() -> dict:
     return cast(dict, os.environ)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def is_generic(cls) -> bool:
+def _is_generic(cls) -> bool:
     return bool(
         (origin := getattr(cls, "__origin__", None))
         and getattr(origin, "__parameters__", None)
@@ -351,7 +395,7 @@ def is_generic(cls) -> bool:
 
 @functools.cache
 def _instantiate_generic(tp):
-    if not is_generic(tp):
+    if not _is_generic(tp):
         raise TypeError("must be called with a subscripted dataclass type")
 
     __origin__ = tp.__origin__
@@ -368,10 +412,10 @@ def _instantiate_generic(tp):
     fields_subst = _get_fields_substitution(tp)
 
     if fields_subst:
-        cls.__cwtch_fields__ = _get_substituted_fields(cls, fields_subst)
+        cls.__dataclass_fields__ = _get_substituted_fields(cls, fields_subst)
         cls.__annotations__ = _get_substituted_annotations(cls, fields_subst)
 
-    for k, v in cls.__cwtch_fields__.items():
+    for k, v in cls.__dataclass_fields__.items():
         setattr(cls, k, v)
 
     cls = cls.cwtch_rebuild()
@@ -392,7 +436,7 @@ def _instantiate_generic(tp):
             f_v.__name__,
             bases,
             exec_body=lambda ns: ns.update(
-                {f_name: f.default for f_name, f in f_v.__cwtch_fields__.items() if f.default is not _MISSING},
+                {f_name: f.default for f_name, f in f_v.__dataclass_fields__.items() if f.default is not _MISSING},
             ),
         )
         view_cls.__annotations__ = {k: v for k, v in f_v.__annotations__.items()}
@@ -405,7 +449,7 @@ def _instantiate_generic(tp):
             view_fields_subst = fields_subst
 
         if view_fields_subst:
-            view_cls.__cwtch_fields__ = _get_substituted_fields(f_v, view_fields_subst)
+            view_cls.__dataclass_fields__ = _get_substituted_fields(f_v, view_fields_subst)
             view_cls.__annotations__ = _get_substituted_annotations(f_v, view_fields_subst)
 
         view_params = view_cls.__cwtch_view_params__
@@ -417,6 +461,7 @@ def _instantiate_generic(tp):
                 cls,
                 view_cls,
                 view_params.get("name", UNSET),
+                view_params.get("attach", UNSET),
                 view_params.get("include", UNSET),
                 view_params.get("exclude", UNSET),
                 view_params.get("slots", UNSET),
@@ -456,11 +501,11 @@ def _make_class_getitem(__class__):
 
 def _get_parameters_map(cls, exclude_params=None) -> dict:
     parameters_map = {}
-    if is_generic(cls):
+    if _is_generic(cls):
         parameters_map = dict(
             zip(
                 cls.__origin__.__parameters__,
-                (_instantiate_generic(arg) if is_generic(arg) else arg for arg in cls.__args__),
+                (_instantiate_generic(arg) if _is_generic(arg) else arg for arg in cls.__args__),
             )
         )
     if exclude_params:
@@ -483,7 +528,7 @@ def _get_fields_substitution(cls, exclude_params=None) -> dict[str, dict]:
         parameters_map = _get_parameters_map(item, exclude_params=exclude_params)
         if not parameters_map:
             continue
-        for f_name, f in origin.__cwtch_fields__.items():  # type: ignore
+        for f_name, f in origin.__dataclass_fields__.items():  # type: ignore
             for k in ("type", "default", "default_factory"):
                 k_v = getattr(f, k)
                 if hasattr(k_v, "__typing_subst__") and k_v in parameters_map:
@@ -497,7 +542,7 @@ def _get_fields_substitution(cls, exclude_params=None) -> dict[str, dict]:
 
 
 def _get_substituted_fields(cls, fields_subst: dict[str, dict]) -> dict[str, Field]:
-    fields = {k: v for k, v in cls.__cwtch_fields__.items()}
+    fields = {k: v for k, v in cls.__dataclass_fields__.items()}
     for f_name, f in fields.items():
         new_f = None
         for k in ("type", "default", "default_factory"):
@@ -535,12 +580,14 @@ def _copy_field(f: Field) -> Field:
         init=f.init,
         init_alias=f.init_alias,
         repr=f.repr,
+        compare=f.compare,
         property=f.property,
         validate=f.validate,
         metadata=deepcopy(f.metadata),
     )
     new_f.name = f.name
     new_f.type = f.type
+    new_f._field_type = f._field_type
     return new_f
 
 
@@ -577,7 +624,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         "_cache_get": CACHE.get,
         "_validate": validate_value_using_validator,
         "_env_prefixes": env_prefixes,
-        "_env_source": env_source or default_env_source,
+        "_env_source": env_source or _default_env_source,
         "_json_loads": json.loads,
         "_builtins_id": id,
         "ValidationError": ValidationError,
@@ -592,7 +639,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         args.append("*")
 
     if handle_circular_refs:
-        args.append("_cwtch_cache_key=None")
+        args.append("__cwtch_cache_key=None")
 
     sorted_fields = sorted(
         fields.keys(),
@@ -605,7 +652,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         body += [
             "env_source_data = _env_source()",
             "env_data = {}",
-            "for f_name, f in __cwtch_self__.__cwtch_fields__.items():",
+            "for f_name, f in __cwtch_self__.__dataclass_fields__.items():",
             "   if env_var := f.metadata.get('env_var', True):",
             "       for env_prefix in _env_prefixes:",
             "           if isinstance(env_var, str):",
@@ -626,8 +673,8 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         indent = ""
         if handle_circular_refs:
             body += [
-                "if _cwtch_cache_key is not None:",
-                "    _cache_get()[_cwtch_cache_key] = __cwtch_self__",
+                "if __cwtch_cache_key is not None:",
+                "    _cache_get()[__cwtch_cache_key] = __cwtch_self__",
                 "try:",
             ]
             indent = " " * 4
@@ -635,9 +682,9 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         if extra == "forbid":
             allowed_extra_field_names = [f.init_alias for f in fields.values() if f.init_alias]
             body += [
-                f"{indent}if __extra_kwds__:",
+                f"{indent}if __extra_kwds:",
                 f"{indent}    allowed_extra_field_names = {{{', '.join(allowed_extra_field_names)}}}",
-                f"{indent}    for k in __extra_kwds__:",
+                f"{indent}    for k in __extra_kwds:",
                 f"{indent}        if k not in allowed_extra_field_names:",
                 f"{indent}            raise TypeError(",
                 f'{indent}                f"{{__class__.__name__}}.__init__() "',
@@ -684,8 +731,8 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 ]
                 if field.init_alias:
                     body += [
-                        f"{indent}    if '{field.init_alias}' in __extra_kwds__:",
-                        f"{indent}        {f_name} = __extra_kwds__['{field.init_alias}']",
+                        f"{indent}    if '{field.init_alias}' in __extra_kwds:",
+                        f"{indent}        {f_name} = __extra_kwds['{field.init_alias}']",
                         f"{indent}    else:",
                     ]
                     indent += "    "
@@ -714,7 +761,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                     f"{indent}try:",
                     f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
                     f"{indent}except (TypeError, ValueError, ValidationError) as e:",
-                    f"{indent}    raise ValidationError(_MISSING, __class__, [e], path=[f_{f_name}.name])",
+                    f"{indent}    raise ValidationError(..., __class__, [e], path=[f_{f_name}.name])",
                 ]
             else:
                 body += [
@@ -736,13 +783,13 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
         if handle_circular_refs is True:
             body += [
                 "finally:",
-                "    _cache_get().pop(_cwtch_cache_key, None)",
+                "    _cache_get().pop(__cwtch_cache_key, None)",
             ]
 
     else:
         body = ["pass"]
 
-    args += ["**__extra_kwds__"]
+    args += ["**__extra_kwds"]
 
     body += [
         "if '__post_init__' in __class__.__dict__:",
@@ -789,23 +836,22 @@ def _create_rich_repr(cls, fields):
     return __rich_repr__
 
 
-def _create_eq(cls):
+def _create_eq(cls, fields):
     globals = {}
     locals = {}
 
+    fields = {k: v for k, v in fields.items() if v.compare is not False}
+
     args = ["__cwtch_self__", "other"]
 
-    body = [
-        "if not hasattr(other, '__cwtch_model__') or __cwtch_self__.__class__ != other.__class__:",
-        "   return False",
-    ]
+    comparison = " and ".join([f"__cwtch_self__.{field} == other.{field}" for field in fields]) or "True"
 
-    body += [
-        "if not sorted(__cwtch_self__.__cwtch_fields__.keys()) == sorted(other.__cwtch_fields__.keys()):",
+    body = [
+        "if __cwtch_self__ is other:",
+        "    return True",
+        "if not hasattr(other, '__cwtch_model__') or __cwtch_self__.__class__ is not other.__class__:",
         "    return False",
-        "l = [getattr(__cwtch_self__, f_name) for f_name in __cwtch_self__.__cwtch_fields__]",
-        "r = [getattr(other, f_name) for f_name in other.__cwtch_fields__]",
-        "return l == r",
+        f"return {comparison}",
     ]
 
     __eq__ = _create_fn(cls, "__eq__", args, body, globals=globals, locals=locals)
@@ -833,28 +879,33 @@ def _build(
     __annotations__ = cls.__annotations__
     __dict__ = {k: v for k, v in cls.__dict__.items()}
 
-    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not is_classvar(v)}
+    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
 
-    __cwtch_fields__ = getattr(cls, "__cwtch_fields__", {})
+    __dataclass_fields__ = getattr(cls, "__dataclass_fields__", {})
 
     for base in __bases__[::-1]:
-        if hasattr(base, "__cwtch_fields__"):
-            __cwtch_fields__.update({k: v for k, v in base.__cwtch_fields__.items() if k not in __cwtch_fields__})
+        if hasattr(base, "__dataclass_fields__"):
+            __dataclass_fields__.update(
+                {k: v for k, v in base.__dataclass_fields__.items() if k not in __dataclass_fields__}
+            )
 
     for f_name, f_type in __annotations__.items():
+        if _is_classvar(f_type):
+            continue
         f = defaults.get(f_name, _MISSING)
         if not isinstance(f, Field):
             f = Field(default=f)
+            f._field_type = _FIELD
         f.name = f_name
         f.type = f_type
-        __cwtch_fields__[f_name] = f
+        __dataclass_fields__[f_name] = f
 
     if not rebuild:
         if slots:
             if "__slots__" in __dict__:
                 raise TypeError(f"{cls.__name__} already specifies __slots__")
             __dict__["__slots__"] = tuple(
-                [f_name for f_name, f in __cwtch_fields__.items() if f.property is not True]
+                [f_name for f_name, f in __dataclass_fields__.items() if f.property is not True]
             ) + ("__cwtch_fields_set__",)
         __dict__.pop("__dict__", None)
         cls = type(cls.__name__, cls.__bases__, __dict__)
@@ -869,7 +920,7 @@ def _build(
         "__init__",
         _create_init(
             cls,
-            __cwtch_fields__,
+            __dataclass_fields__,
             validate,
             extra,
             env_prefixes,
@@ -879,18 +930,19 @@ def _build(
     )
 
     if repr:
-        setattr(cls, "__rich_repr__", _create_rich_repr(cls, __cwtch_fields__))
+        setattr(cls, "__rich_repr__", _create_rich_repr(cls, __dataclass_fields__))
         rich.repr.auto()(cls)  # type: ignore
 
     if eq:
-        setattr(cls, "__eq__", _create_eq(cls))
+        setattr(cls, "__eq__", _create_eq(cls, __dataclass_fields__))
 
     if hasattr(cls, "__parameters__"):
         setattr(cls, "__class_getitem__", classmethod(_make_class_getitem(cls)))
 
     setattr(cls, "__cwtch_handle_circular_refs__", handle_circular_refs)
 
-    setattr(cls, "__cwtch_fields__", __cwtch_fields__)
+    setattr(cls, "__dataclass_fields__", __dataclass_fields__)
+    setattr(cls, "__dataclass_params__", _DataclassParams(True, repr, eq, False, False, False))
 
     def cwtch_rebuild(cls):
         if not is_cwtch_model(cls):
@@ -957,6 +1009,7 @@ def _build(
                         cls,
                         v,
                         view_params.get("name", UNSET),
+                        view_params.get("attach", UNSET),
                         view_params.get("include", UNSET),
                         view_params.get("exclude", UNSET),
                         view_params.get("slots", UNSET),
@@ -978,6 +1031,7 @@ def _build_view(
     cls,
     view_cls,
     name: Unset[str],
+    attach: Unset[bool],
     include: Unset[Sequence[str]],
     exclude: Unset[Sequence[str]],
     slots: Unset[bool],
@@ -1013,23 +1067,26 @@ def _build_view(
     __annotations__ = view_cls.__annotations__
     __dict__ = {k: v for k, v in view_cls.__dict__.items()}
 
-    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not is_classvar(v)}
+    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
 
-    if hasattr(view_cls, "__cwtch_fields__"):
-        __cwtch_fields__ = {k: _copy_field(v) for k, v in view_cls.__cwtch_fields__.items()}
+    if hasattr(view_cls, "__dataclass_fields__"):
+        __dataclass_fields__ = {k: _copy_field(v) for k, v in view_cls.__dataclass_fields__.items()}
     else:
-        __cwtch_fields__ = {}
+        __dataclass_fields__ = {}
         for base in __bases__[::-1]:
-            if hasattr(base, "__cwtch_fields__"):
-                __cwtch_fields__.update({k: _copy_field(v) for k, v in base.__cwtch_fields__.items()})
+            if hasattr(base, "__dataclass_fields__"):
+                __dataclass_fields__.update({k: _copy_field(v) for k, v in base.__dataclass_fields__.items()})
 
     for f_name, f_type in __annotations__.items():
+        if _is_classvar(f_type):
+            continue
         f = defaults.get(f_name, _MISSING)
         if not isinstance(f, Field):
             f = Field(default=f)
+            f._field_type = _FIELD
         f.name = f_name
         f.type = f_type
-        __cwtch_fields__[f_name] = f
+        __dataclass_fields__[f_name] = f
 
     __cwtch_params__ = view_cls.__cwtch_params__
 
@@ -1049,6 +1106,8 @@ def _build_view(
         __cwtch_view_params__.update({k: v for k, v in view_cls.__cwtch_view_params__.items() if v != UNSET})
     if name is not UNSET:
         __cwtch_view_params__["name"] = name
+    if attach is not UNSET:
+        __cwtch_view_params__["attach"] = attach
     if include is not UNSET:
         __cwtch_view_params__["include"] = include
     if exclude is not UNSET:
@@ -1075,21 +1134,21 @@ def _build_view(
     view_name = __cwtch_view_params__.get("name", view_cls.__name__)
 
     include = __cwtch_view_params__.get("include", UNSET)
-    if include and (missing_fields := set(include) - __cwtch_fields__.keys()):  # type: ignore
+    if include and (missing_fields := set(include) - __dataclass_fields__.keys()):  # type: ignore
         raise Exception(f"fields {list(missing_fields)} not present")
 
     exclude = __cwtch_view_params__.get("exclude", UNSET)
 
-    __cwtch_fields__ = {
+    __dataclass_fields__ = {
         k: v
-        for k, v in __cwtch_fields__.items()
+        for k, v in __dataclass_fields__.items()
         if (include is UNSET or k in include) and (exclude is UNSET or k not in exclude)
     }
 
     view_recursive = __cwtch_view_params__["recursive"]
     if view_recursive:
         view_names = view_recursive if isinstance(view_recursive, (list, tuple, set)) else [view_name]
-        for k, v in __cwtch_fields__.items():
+        for k, v in __dataclass_fields__.items():
             v.type = update_type(v.type, view_names)
             if k in view_cls.__annotations__:
                 view_cls.__annotations__[k] = v.type
@@ -1105,12 +1164,12 @@ def _build_view(
 
     if not rebuild:
         if __cwtch_view_params__["slots"]:
-            __slots__ = tuple([f_name for f_name, f in __cwtch_fields__.items() if f.property is not True])
+            __slots__ = tuple([f_name for f_name, f in __dataclass_fields__.items() if f.property is not True])
             if "__slots__" in __dict__:
                 __slots__ += tuple(x for x in __dict__["__slots__"] if x not in __slots__)
             __dict__["__slots__"] = __slots__
         else:
-            for f_name, f in __cwtch_fields__.items():
+            for f_name, f in __dataclass_fields__.items():
                 __dict__[f_name] = f
         __dict__.pop("__dict__", None)
         view_cls = type(view_cls.__name__, view_cls.__bases__, __dict__)
@@ -1120,7 +1179,7 @@ def _build_view(
         "__init__",
         _create_init(
             view_cls,
-            __cwtch_fields__,
+            __dataclass_fields__,
             __cwtch_view_params__["validate"],
             __cwtch_view_params__["extra"],
             env_prefixes,
@@ -1133,7 +1192,7 @@ def _build_view(
         setattr(
             view_cls,
             "__rich_repr__",
-            _create_rich_repr(view_cls, __cwtch_fields__),
+            _create_rich_repr(view_cls, __dataclass_fields__),
         )
         rich.repr.auto()(view_cls)  # type: ignore
 
@@ -1141,7 +1200,7 @@ def _build_view(
         setattr(
             view_cls,
             "__eq__",
-            _create_eq(view_cls),
+            _create_eq(view_cls, __dataclass_fields__),
         )
 
     if getattr(view_cls, "__parameters__", None):
@@ -1151,7 +1210,7 @@ def _build_view(
 
     def __getattribute__(self, name: str, /) -> Any:
         result = super().__getattribute__(name)  # type: ignore
-        if isinstance(result, Field) and result.name not in object.__getattribute__(self, "__cwtch_fields__"):
+        if isinstance(result, Field) and result.name not in object.__getattribute__(self, "__dataclass_fields__"):
             try:
                 x = object.__getattribute__(self, "__dict__")
             except KeyError:
@@ -1167,7 +1226,7 @@ def _build_view(
     setattr(view_cls, "__cwtch_view_name__", view_name)
     setattr(view_cls, "__cwtch_view__", True)
     setattr(view_cls, "__cwtch_view_base__", cls)
-    setattr(view_cls, "__cwtch_fields__", __cwtch_fields__)
+    setattr(view_cls, "__dataclass_fields__", __dataclass_fields__)
     setattr(view_cls, "__cwtch_view_params__", __cwtch_view_params__)
 
     def cwtch_rebuild(view_cls):
@@ -1177,6 +1236,7 @@ def _build_view(
             view_cls.__cwtch_view_base__,
             view_cls,
             name=name,
+            attach=attach,
             include=include,
             exclude=exclude,
             slots=slots,
@@ -1193,7 +1253,8 @@ def _build_view(
 
     setattr(view_cls, "cwtch_rebuild", classmethod(cwtch_rebuild))
 
-    setattr(cls, view_name, ViewDesc(view_cls))
+    if attach is True:
+        setattr(cls, view_name, _ViewDesc(view_cls))
 
     return view_cls
 
@@ -1222,7 +1283,7 @@ def from_attributes(
 
     kwds = {
         f.name: getattr(obj, f"{f_name}{suffix}" if suffix else f_name)
-        for f_name, f in cls.__cwtch_fields__.items()
+        for f_name, f in cls.__dataclass_fields__.items()
         if (not exclude or f_name not in exclude) and hasattr(obj, f"{f.name}{suffix}" if suffix else f_name)
     }
     if data:
@@ -1233,7 +1294,7 @@ def from_attributes(
     cache = CACHE.get()
     cache["reset_circular_refs"] = reset_circular_refs
     try:
-        return cls(_cwtch_cache_key=(cls, id(obj)), **kwds)
+        return cls(__cwtch_cache_key=(cls, id(obj)), **kwds)
     finally:
         del cache["reset_circular_refs"]
 
@@ -1264,11 +1325,18 @@ def asdict(
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+def dumps(inst, default: Callable[[Any], Any] | None = None, context: dict | None = None):
+    return _dumps_json(inst, default, context)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
 def resolve_types(cls, globalns=None, localns=None, *, include_extras: bool = True, rebuild: bool = True):
     kwds = {"globalns": globalns, "localns": localns, "include_extras": include_extras}
 
     hints = typing.get_type_hints(cls, **kwds)
-    for f_name, f in cls.__cwtch_fields__.items():
+    for f_name, f in cls.__dataclass_fields__.items():
         if f_name in hints:
             f.type = hints[f_name]
         if f_name in cls.__annotations__:
