@@ -63,6 +63,7 @@ class Field:
         "property",
         "validate",
         "metadata",
+        "kw_only",
         "_field_type",
     )
 
@@ -78,6 +79,7 @@ class Field:
         property: Unset[Literal[True]] = UNSET,
         validate: Unset[bool] = UNSET,
         metadata: Unset[dict] = UNSET,
+        kw_only: Unset[bool] = UNSET,
     ):
         self.name: str = cast(str, None)
         self.type: Any = cast(Any, None)
@@ -90,6 +92,7 @@ class Field:
         self.property = property
         self.validate = validate
         self.metadata = {} if metadata is UNSET else metadata
+        self.kw_only = kw_only
         self._field_type = None
 
     def __rich_repr__(self):
@@ -104,6 +107,7 @@ class Field:
         yield "property", self.property
         yield "validate", self.validate
         yield "metadata", self.metadata
+        yield "kw_only", self.kw_only
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, Field):
@@ -120,6 +124,7 @@ class Field:
             self.property,
             self.validate,
             self.metadata,
+            self.kw_only,
             self._field_type,
         ) == (
             other.name,
@@ -133,6 +138,7 @@ class Field:
             other.property,
             other.validate,
             other.metadata,
+            other.kw_only,
             other._field_type,
         )
 
@@ -151,6 +157,7 @@ def field(
     property: Unset[Literal[True]] = UNSET,
     validate: Unset[bool] = UNSET,
     metadata: Unset[dict] = UNSET,
+    kw_only: Unset[dict] = UNSET,
 ) -> Any:
     return Field(
         default=default,
@@ -162,6 +169,7 @@ def field(
         property=property,
         validate=validate,
         metadata=metadata,
+        kw_only=kw_only,
     )
 
 
@@ -586,6 +594,7 @@ def _copy_field(f: Field) -> Field:
         property=f.property,
         validate=f.validate,
         metadata=deepcopy(f.metadata),
+        kw_only=f.kw_only,
     )
     new_f.name = f.name
     new_f.type = f.type
@@ -638,15 +647,11 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
     args = ["__cwtch_self__"]
 
     if fields:
-        args.append("*")
+        # args.append("*")
+        args.append("/")
 
     if handle_circular_refs:
         args.append("__cwtch_cache_key=None")
-
-    sorted_fields = sorted(
-        fields.keys(),
-        key=lambda name: not (fields[name].default is _MISSING and fields[name].default_factory is _MISSING),
-    )
 
     body = ["__cwtch_fields_set__ = ()"]
 
@@ -694,13 +699,22 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 f"{indent}            )",
             ]
 
-        for f_name in sorted_fields:
+        any_fields = [f_name for f_name, f in fields.items() if f.kw_only is not True]
+        for f_name in any_fields:
+            args.append(f"{f_name}: t_{f_name} = _MISSING")
+
+        kw_only_fields = [f_name for f_name, f in fields.items() if f.kw_only is True]
+        if kw_only_fields:
+            args.append("*")
+        for f_name in kw_only_fields:
+            args.append(f"{f_name}: t_{f_name} = _MISSING")
+
+        for f_name in any_fields + kw_only_fields:
             field = fields[f_name]
             locals[f"f_{f_name}"] = field
             locals[f"t_{f_name}"] = field.type
             locals[f"d_{f_name}"] = field.default
             locals[f"df_{f_name}"] = field.default_factory
-            args.append(f"{f_name}: t_{f_name} = _MISSING")  #
             if env_prefixes is not UNSET:
                 body += [
                     f"{indent}if {f_name} is _MISSING:",
@@ -720,8 +734,13 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 else:
                     body += [
                         f"{indent}    else:",
-                        f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
-                        f" missing required keyword-only argument: '{f_name}'\")",
+                        (
+                            f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
+                            f" missing required positional argument: '{f_name}'\")"
+                            if fields[f_name].kw_only is not True
+                            else f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
+                            f" missing required keyword-only argument: '{f_name}'\")"
+                        ),
                     ]
                 body += [
                     f"{indent}else:",
@@ -748,8 +767,13 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                     ]
                 else:
                     body += [
-                        f'{indent}    raise TypeError(f"{{__class__.__name__}}.__init__()'
-                        f" missing required keyword-only argument: '{f_name}'\")",
+                        (
+                            f'{indent}    raise TypeError(f"{{__class__.__name__}}.__init__()'
+                            f" missing required positional argument: '{f_name}'\")"
+                            if fields[f_name].kw_only is not True
+                            else f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
+                            f" missing required keyword-only argument: '{f_name}'\")"
+                        )
                     ]
                 if field.init_alias:
                     indent = indent[:-4]

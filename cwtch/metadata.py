@@ -1,4 +1,3 @@
-import dataclasses
 import json
 import re
 import types
@@ -6,6 +5,7 @@ import typing
 
 from typing import Any, Type, TypeVar
 
+from cwtch import dataclass, field
 from cwtch.core import TypeMetadata
 
 
@@ -13,17 +13,17 @@ T = TypeVar("T")
 
 
 @typing.final
-@dataclasses.dataclass(kw_only=True, frozen=True, slots=True)
+@dataclass(slots=True)
 class Validator(TypeMetadata):
-    json_schema: dict = dataclasses.field(default_factory=lambda: dict)  # type: ignore
-    before: typing.Callable = lambda v: v
-    after: typing.Callable = lambda v: v
+    json_schema: dict = field(default_factory=lambda: dict)  # type: ignore
+    before: typing.Callable = field(kw_only=True, default_factory=lambda v: v)
+    after: typing.Callable = field(kw_only=True, default_factory=lambda v: v)
 
     def __init_subclass__(cls, **kwds):
         raise Exception("Validator class cannot be inherited")
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Ge(TypeMetadata):
     value: Any
 
@@ -36,7 +36,7 @@ class Ge(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Gt(TypeMetadata):
     value: Any
 
@@ -49,7 +49,7 @@ class Gt(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Le(TypeMetadata):
     value: Any
 
@@ -62,7 +62,7 @@ class Le(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Lt(TypeMetadata):
     value: Any
 
@@ -75,7 +75,7 @@ class Lt(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class MinLen(TypeMetadata):
     value: int
 
@@ -88,7 +88,7 @@ class MinLen(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class MaxLen(TypeMetadata):
     value: int
 
@@ -101,7 +101,7 @@ class MaxLen(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Len(TypeMetadata):
     min_value: int
     max_value: int
@@ -117,7 +117,7 @@ class Len(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class MinItems(TypeMetadata):
     value: int
 
@@ -130,7 +130,7 @@ class MinItems(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class MaxItems(TypeMetadata):
     value: int
 
@@ -143,7 +143,7 @@ class MaxItems(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Match(TypeMetadata):
     pattern: re.Pattern
 
@@ -156,10 +156,10 @@ class Match(TypeMetadata):
         return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UrlConstraints(TypeMetadata):
-    schemes: list[str] | None = dataclasses.field(default=None)
-    ports: list[int] | None = dataclasses.field(default=None)
+    schemes: list[str] | None = field(default=None, kw_only=True)
+    ports: list[int] | None = field(default=None, kw_only=True)
 
     def after(self, value, /):
         if self.schemes is not None and value.scheme not in self.schemes:
@@ -172,7 +172,7 @@ class UrlConstraints(TypeMetadata):
         return hash(f"{sorted(self.schemes or [])}{sorted(self.ports or [])}")
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True, repr=False)
 class JsonLoads(TypeMetadata):
     def before(self, value, /):
         try:
@@ -181,29 +181,29 @@ class JsonLoads(TypeMetadata):
             return value
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True, repr=False)
 class ToLower(TypeMetadata):
     def after(self, value, /):
         return value.lower()
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True, repr=False)
 class ToUpper(TypeMetadata):
     def after(self, value, /):
         return value.upper()
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Strict(TypeMetadata):
     type: Type
 
     def __post_init__(self):
         def fn(tp):
             tps = []
-            if hasattr(tp, "__args__"):
+            if __args__ := getattr(tp, "__args__", None):
                 if tp.__class__ not in [types.UnionType, typing._UnionGenericAlias]:  # type: ignore
                     raise ValueError(f"{self.type} is unsupported by {self.__class__}")
-                for arg in tp.__args__:
+                for arg in __args__:
                     tps.extend(fn(arg))
             else:
                 tps.append(tp)

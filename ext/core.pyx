@@ -298,10 +298,13 @@ def validate_type(value, T, /):
             raise ValueError("value is not a None")
         return value
     if origin == type:
-        arg = T.__args__[0]
-        if getattr(arg, "__base__", None) is not None and issubclass(value, T.__args__[0]):
-            return value
-        raise ValueError(f"invalid value for {T}".replace("typing.", ""))
+        if type(value) != type:
+            raise ValueError(f"value should be a type")
+        if (args := getattr(T, "__args__", None)) is not None:
+            arg = T.__args__[0]
+            if getattr(arg, "__base__", None) is None or not issubclass(value, arg):
+                raise ValueError(f"invalid value for {T}".replace("typing.", ""))
+        return value
     return origin(value)
 
 

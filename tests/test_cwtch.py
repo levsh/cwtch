@@ -612,6 +612,7 @@ class TestModel:
         class M:
             i: int
 
+        M(0)
         M(i=0)
 
         with pytest.raises(
@@ -623,16 +624,16 @@ class TestModel:
                 #     "path[ 'i'] input_type[ <class 'cwtch.types.UnsetType'> ]\n"
                 #     "  Error: M.__init__() missing required keyword-only argument: 'i'"
                 # )
-                "M.__init__() missing required keyword-only argument: 'i'"
+                "M.__init__() missing required positional argument: 'i'"
             ),
         ):
             M()
 
-        with pytest.raises(
-            TypeError,
-            match=re.escape("M.__init__() takes 1 positional argument but 2 were given"),
-        ):
-            M(0)
+        # with pytest.raises(
+        #     TypeError,
+        #     match=re.escape("M.__init__() missing required keyword-only argument: 'i'"),
+        # ):
+        #     M(0)
 
     def test_post_init(self):
         @dataclass
