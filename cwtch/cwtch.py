@@ -1,8 +1,10 @@
 # ruff: noqa: F401
 
+
 import functools
 import json
 import os
+import sys
 import typing
 
 from collections.abc import Sequence
@@ -942,7 +944,19 @@ def _build(
     setattr(cls, "__cwtch_handle_circular_refs__", handle_circular_refs)
 
     setattr(cls, "__dataclass_fields__", __dataclass_fields__)
-    setattr(cls, "__dataclass_params__", _DataclassParams(True, repr, eq, False, False, False))
+
+    if sys.version_info.minor > 11:
+        setattr(
+            cls,
+            "__dataclass_params__",
+            _DataclassParams(True, repr, eq, False, False, False, False, False, slots, False),
+        )
+    else:
+        setattr(
+            cls,
+            "__dataclass_params__",
+            _DataclassParams(True, repr, eq, False, False, False),
+        )
 
     def cwtch_rebuild(cls):
         if not is_cwtch_model(cls):
