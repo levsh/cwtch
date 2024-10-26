@@ -616,24 +616,10 @@ class TestModel:
         M(i=0)
 
         with pytest.raises(
-            # ValidationError,
             TypeError,
-            match=re.escape(
-                # (
-                #     "type[ <class 'test_cwtch.TestModel.test_init.<locals>.M'> ] "
-                #     "path[ 'i'] input_type[ <class 'cwtch.types.UnsetType'> ]\n"
-                #     "  Error: M.__init__() missing required keyword-only argument: 'i'"
-                # )
-                "M.__init__() missing required positional argument: 'i'"
-            ),
+            match=re.escape("M.__init__() missing required positional argument: 'i'"),
         ):
             M()
-
-        # with pytest.raises(
-        #     TypeError,
-        #     match=re.escape("M.__init__() missing required keyword-only argument: 'i'"),
-        # ):
-        #     M(0)
 
     def test_post_init(self):
         @dataclass
@@ -744,6 +730,29 @@ class TestModel:
             s: str
 
         assert A(i=0, s="a") != B(i=0, s="a")
+
+    def test_kw_only(self):
+        @dataclass
+        class M:
+            i: int = field()
+            j: int = field(kw_only=False)
+            s: str = field(kw_only=True)
+
+        m = M(0, 1, s="a")
+        assert m.i == 0
+        assert m.j == 1
+        assert m.s == "a"
+
+        m = M(s="a", j=1, i=0)
+        assert m.i == 0
+        assert m.j == 1
+        assert m.s == "a"
+
+        with pytest.raises(
+            TypeError,
+            match=re.escape("M.__init__() takes from 1 to 3 positional arguments but 4 were given"),
+        ):
+            m = M(0, 1, "a")
 
 
 class TestView:
