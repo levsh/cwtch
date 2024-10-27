@@ -15,9 +15,9 @@ T = TypeVar("T")
 @typing.final
 @dataclass(slots=True)
 class Validator(TypeMetadata):
-    json_schema: dict = field(default_factory=lambda: dict)  # type: ignore
-    before: typing.Callable = field(kw_only=True, default_factory=lambda v: v)
-    after: typing.Callable = field(kw_only=True, default_factory=lambda v: v)
+    json_schema: dict = field(default_factory=dict)  # type: ignore
+    before: typing.Callable = field(default=lambda v: v, kw_only=True)
+    after: typing.Callable = field(default=lambda v: v, kw_only=True)
 
     def __init_subclass__(cls, **kwds):
         raise Exception("Validator class cannot be inherited")
