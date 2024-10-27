@@ -26,9 +26,8 @@ ValidationError                           Traceback (most recent call last)
 Cell In[4], line 1
 ----> 1 D(i='i', s='s')
 
-File <string>:12, in __init__(__cwtch_self__, i, s, **__extra_kwds__)
+File <string>:12, in __init__(__cwtch_self__, i, s, **__extra_kwds)
 
 ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
   type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'i' ]
     Error: invalid literal for int() with base 10: 'i'
-```
