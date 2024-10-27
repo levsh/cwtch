@@ -11,9 +11,6 @@ class D:
 !!! info
     By default **cwtch** validates input arguments according to class annotations.
 
-!!! note
-    Only keyword only arguments are supported at this moment.
-
 ```python
 >>> print(D(i=0, s='s', b=True))
 D(i=0, s='s', b=True)

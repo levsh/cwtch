@@ -74,3 +74,11 @@ def build_docs(c):
 
     cmd = "poetry run mkdocs build -f docs/ru/mkdocs.yml -d ../site/ru/"
     c.run(cmd)
+
+
+@task
+def run_docs(c):
+    """Run HTTP server with documentation localy"""
+
+    cmd = "poetry run python -m http.server -d docs/site"
+    c.run(cmd)
