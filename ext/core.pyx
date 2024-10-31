@@ -784,6 +784,8 @@ def validate_typevar(value, T, /):
 
 @cython.cfunc
 def default_validator(value, T, /):
+    if getattr(T, "__bases__", None) is None:
+        raise TypeError(f"{T} is not a type")
     if getattr(T, "__origin__", None) is None and isinstance(value, T):
         return value
     return T(value)
