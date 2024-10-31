@@ -236,6 +236,9 @@ def dataclass(
         recursive=recursive,
         handle_circular_refs=handle_circular_refs,
     ):
+        # if getattr(cls, "__cwtch_asjson__", None) is not None:
+        #     logger.warning("Method __cwtch_asjson__ is not applicable to dataclass")
+
         return _build(
             cls,
             cast(bool, slots),
@@ -331,6 +334,9 @@ def view(
     ):
         if exclude and set(exclude) & view_cls.__annotations__.keys():  # type: ignore
             raise ValueError(f"unable to exclude fields {list(set(exclude) & view_cls.__annotations__.keys())}")  # type: ignore
+
+        # if getattr(cls, "__cwtch_asjson__", None) is not None:
+        #     logger.warning("Method __cwtch_asjson__ is not applicable to dataclass view")
 
         cls = next((x for x in view_cls.__bases__ if getattr(x, "__cwtch_model__", None)), None)
 
@@ -795,7 +801,8 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 ]
             if field.property is True:
                 body += [
-                    f"__class__.{f_name} = property(lambda self: _{f_name})",
+                    f"__cwtch_self__._prop_{f_name} = _{f_name}",
+                    f"__class__.{f_name} = property(lambda self: self._prop_{f_name})",
                 ]
             else:
                 body += [
@@ -931,7 +938,7 @@ def _build(
             if "__slots__" in __dict__:
                 raise TypeError(f"{cls.__name__} already specifies __slots__")
             __dict__["__slots__"] = tuple(
-                [f_name for f_name, f in __dataclass_fields__.items() if f.property is not True]
+                [f_name if f.property is not True else f"_prop_{f_name}" for f_name, f in __dataclass_fields__.items()]
             ) + ("__cwtch_fields_set__",)
         __dict__.pop("__dict__", None)
         cls = type(cls.__name__, cls.__bases__, __dict__)
@@ -1202,7 +1209,10 @@ def _build_view(
 
     if not rebuild:
         if __cwtch_view_params__["slots"]:
-            __slots__ = tuple([f_name for f_name, f in __dataclass_fields__.items() if f.property is not True])
+            __slots__ = tuple(
+                [f_name if f.property is not None else f"_prop_{f_name}" for f_name, f in __dataclass_fields__.items()]
+            )
+
             if "__slots__" in __dict__:
                 __slots__ += tuple(x for x in __dict__["__slots__"] if x not in __slots__)
             __dict__["__slots__"] = __slots__
@@ -1363,8 +1373,8 @@ def asdict(
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def dumps(inst, default: Callable[[Any], Any] | None = None, context: dict | None = None):
-    return _dumps_json(inst, default, context)
+def dumps(inst, encoder: Callable[[Any], Any] | None = None, context: dict | None = None):
+    return _dumps_json(inst, encoder, context)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -3,6 +3,7 @@
 # cython: profile=False
 # distutils: language=c
 
+import datetime
 import functools
 import types
 import typing
@@ -11,7 +12,6 @@ from abc import ABCMeta
 from collections import namedtuple
 from collections.abc import Mapping
 from contextvars import ContextVar
-from datetime import date, datetime
 from enum import Enum, EnumType
 from typing import (
     Any,
@@ -66,6 +66,10 @@ FALSE_MAP = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No"
 
 
 T = TypeVar("T")
+
+
+date_fromisoformat = datetime.date.fromisoformat
+datetime_fromisoformat = datetime.datetime.fromisoformat
 
 
 class _MissingType:
@@ -760,16 +764,16 @@ def validate_abcmeta(value, T, /):
 
 
 @cython.cfunc
-def validate_datetime(value, T, /):
+def validate_date(value, T, /):
     if isinstance(value, str):
-        return datetime.fromisoformat(value)
+        return date_fromisoformat(value)
     return default_validator(value, T)
 
 
 @cython.cfunc
-def validate_date(value, T, /):
+def validate_datetime(value, T, /):
     if isinstance(value, str):
-        return date.fromisoformat(value)
+        return datetime_fromisoformat(value)
     return default_validator(value, T)
 
 
@@ -813,8 +817,8 @@ def __():
     validators_map[typing.Union] = validate_union
     validators_map[_UnionGenericAlias] = validate_union
     validators_map[ABCMeta] = validate_abcmeta
-    validators_map[datetime] = validate_datetime
-    validators_map[date] = validate_date
+    validators_map[datetime.datetime] = validate_datetime
+    validators_map[datetime.date] = validate_date
     validators_map[TypeVar] = validate_typevar
 
     validators_map_get = validators_map.get
@@ -1019,8 +1023,8 @@ def __():
     json_schema_builders_map[types.UnionType] = make_json_schema_union
     json_schema_builders_map[typing.Union] = make_json_schema_union
     json_schema_builders_map[_UnionGenericAlias] = make_json_schema_union
-    json_schema_builders_map[datetime] = make_json_schema_datetime
-    json_schema_builders_map[date] = make_json_schema_date
+    json_schema_builders_map[datetime.datetime] = make_json_schema_datetime
+    json_schema_builders_map[datetime.date] = make_json_schema_date
     json_schema_builders_map[UUID] = make_json_schema_uuid
 
     @functools.cache
@@ -1076,19 +1080,33 @@ def __():
 ) = __()
 
 
-def dumps_json(obj, default, context) -> bytes:
-    if default:
+def dumps_json(obj, encoder, context) -> bytes:
+    option = orjson.OPT_PASSTHROUGH_SUBCLASS | orjson.OPT_OMIT_MICROSECONDS
 
-        def _default(obj):
-            if handler := (getattr(obj, "__cwtch_asjson__", None) or getattr(obj, "__cwtch_asdict__", None)):
+    if encoder:
+
+        def _encoder(obj):
+            if (handler := getattr(obj, "__cwtch_asjson__", None)) is not None:
                 return handler(context=context)
-            return default(obj)
+            if isinstance(obj, UUID):
+                return f"{obj}"
+            if isinstance(obj, datetime.date):
+                return obj.isoformat()
+            if isinstance(obj, (datetime.datetime, datetime.time)):
+                return obj.isoformat(timespec="seconds")
+            return encoder(obj)
 
     else:
 
-        def _default(obj):
-            if handler := (getattr(obj, "__cwtch_asjson__", None) or getattr(obj, "__cwtch_asdict__", None)):
+        def _encoder(obj):
+            if (handler := getattr(obj, "__cwtch_asjson__", None)) is not None:
                 return handler(context=context)
+            if isinstance(obj, UUID):
+                return f"{obj}"
+            if isinstance(obj, datetime.date):
+                return obj.isoformat()
+            if isinstance(obj, (datetime.datetime, datetime.time)):
+                return obj.isoformat(timespec="seconds")
             raise TypeError
 
-    return orjson.dumps(obj, default=_default, option=orjson.OPT_PASSTHROUGH_SUBCLASS)
+    return orjson.dumps(obj, default=_encoder, option=option)
