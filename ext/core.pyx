@@ -13,8 +13,10 @@ from collections import namedtuple
 from collections.abc import Mapping
 from contextvars import ContextVar
 from enum import Enum, EnumType
+from types import WrapperDescriptorType
 from typing import (
     Any,
+    Generic,
     GenericAlias,
     Type,
     TypeVar,
@@ -114,7 +116,8 @@ class UnsetType:
     def __repr__(self):
         return "UNSET"
 
-    def __cwtch_json_schema__(self, context=None):
+    @classmethod
+    def __cwtch_json_schema__(cls, context=None):
         return {}
 
 
@@ -124,6 +127,49 @@ Unset = T | UnsetType
 
 
 AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
+
+
+class TypeWrapperMeta(type):
+    def __new__(cls, name, bases, ns):
+        ns["_cwtch_T"] = ns["__orig_bases__"][0].__args__[0]
+
+        class Desc:
+            __slots__ = ("k", "v")
+
+            def __init__(self, k, v):
+                self.k = k
+                self.v = v
+
+            def __get__(self, instance, owner):
+                if instance is not None:
+                    return getattr(instance._cwtch_o, self.k)
+                return self.v
+
+        ns.update(
+            {
+                k: Desc(k, v)
+                for k, v in getattr(ns["_cwtch_T"], "__dict__", {}).items()
+                if type(v) == WrapperDescriptorType and k != "__getattribute__"
+            }
+        )
+
+        return super().__new__(cls, name, bases, ns)
+
+    def __instancecheck__(self, instance):
+        return isinstance(instance, self._cwtch_T)
+
+
+class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
+    def __init__(self, o):
+        self._cwtch_o = o
+
+    def __getattribute__(self, name):
+        object_getattribute = object.__getattribute__
+        if name in object_getattribute(self, "__class__").__dict__:
+            return object_getattribute(self, name)
+        if name in object_getattribute(self, "__dict__"):
+            return object_getattribute(self, name)
+        return getattr(object_getattribute(self, "_cwtch_o"), name)
 
 
 class TypeMetadata:
@@ -266,13 +312,11 @@ def validate_float(value, T, /):
 def validate_str(value, T, /):
     if not isinstance(value, str):
         raise ValueError(f"value is not a valid {T}")
-    return value
+    return f"{value}"
 
 
 @cython.cfunc
 def validate_bytes(value, T, /):
-    if isinstance(value, bytes):
-        return value
     if isinstance(value, str):
         return value.encode()
     return bytes(value)
@@ -280,6 +324,7 @@ def validate_bytes(value, T, /):
 
 @cython.cfunc
 def validate_type(value, T, /):
+    value = getattr(value, "_cwtch_o", value)
     if (origin := getattr(T, "__origin__", T)) == T:
         if isinstance(value, origin):
             return value
@@ -319,15 +364,15 @@ def validate_list(value, T, /):
             try:
                 T_arg = args[0]
                 if T_arg == int:
-                    return [x if isinstance(x, int) else PyNumber_Long(x) for x in value]
+                    return [x if type(x) == int else PyNumber_Long(x) for x in value]
                 if T_arg == str:
-                    return [x if isinstance(x, str) else f"{x}" for x in value]
+                    return [validate_str(x, str) for x in value]
                 if T_arg == float:
-                    return [x if isinstance(x, float) else PyNumber_Float(x) for x in value]
+                    return [x if type(x) == float else PyNumber_Float(x) for x in value]
                 validator = get_validator(T_arg)
                 if validator == validate_type:
                     origin = getattr(T_arg, "__origin__", T_arg)
-                    return [x if isinstance(x, origin) else validator(x, T_arg) for x in value]
+                    return [getattr(x, "_cwtch_o", x) if isinstance(x, origin) else validator(x, T_arg) for x in value]
                 if validator == validate_any:
                     return value
                 return [validator(x, T_arg) for x in value]
@@ -356,15 +401,15 @@ def validate_list(value, T, /):
         try:
             T_arg = args[0]
             if T_arg == int:
-                return [x if isinstance(x, int) else PyNumber_Long(x) for x in value]
+                return [x if type(x) == int else PyNumber_Long(x) for x in value]
             if T_arg == str:
-                return [x if isinstance(x, str) else f"{x}" for x in value]
+                return [validate_str(x, str) for x in value]
             if T_arg == float:
-                return [x if isinstance(x, float) else PyNumber_Float(x) for x in value]
+                return [x if type(x) == float else PyNumber_Float(x) for x in value]
             validator = get_validator(T_arg)
             if validator == validate_type:
                 origin = getattr(T_arg, "__origin__", T_arg)
-                return [x if isinstance(x, origin) else validator(x, T_arg) for x in value]
+                return [getattr(x, "_cwtch_o", x) if isinstance(x, origin) else validator(x, T_arg) for x in value]
             if validator == validate_any:
                 return [x for x in value]
             return [validator(x, T_arg) for x in value]
@@ -425,15 +470,17 @@ def validate_tuple(value, T, /):
             T_arg = T_args[0]
             try:
                 if T_arg == int:
-                    return tuple([x if isinstance(x, int) else PyNumber_Long(x) for x in value])
+                    return tuple([x if type(x) == int else PyNumber_Long(x) for x in value])
                 if T_arg == str:
-                    return tuple([x if isinstance(x, str) else f"{x}" for x in value])
+                    return tuple([validate_str(x, str) for x in value])
                 if T_arg == float:
-                    return tuple([x if isinstance(x, float) else PyNumber_Float(x) for x in value])
+                    return tuple([x if type(x) == float else PyNumber_Float(x) for x in value])
                 validator = get_validator(T_arg)
                 if validator == validate_type:
                     origin = getattr(T_arg, "__origin__", T_arg)
-                    return tuple([x if isinstance(x, origin) else T_arg(x) for x in value])
+                    return tuple(
+                        [getattr(x, "_cwtch_o", x) if isinstance(x, origin) else validator(x, T_arg) for x in value]
+                    )
                 if validator == validate_any:
                     return value
                 return tuple([validator(x, T_arg) for x in value])
@@ -493,15 +540,17 @@ def validate_tuple(value, T, /):
         T_arg = T_args[0]
         try:
             if T_arg == int:
-                return tuple([x if isinstance(x, int) else PyNumber_Long(x) for x in value])
+                return tuple([x if type(x) == int else PyNumber_Long(x) for x in value])
             if T_arg == str:
-                return tuple([x if isinstance(x, str) else f"{x}" for x in value])
+                return tuple([validate_str(x, str) for x in value])
             if T_arg == float:
-                return tuple([x if isinstance(x, float) else PyNumber_Float(x) for x in value])
+                return tuple([x if type(x) == float else PyNumber_Float(x) for x in value])
             validator = get_validator(T_arg)
             if validator == validate_type:
                 origin = getattr(T_arg, "__origin__", T_arg)
-                return tuple([x if isinstance(x, origin) else T_arg(x) for x in value])
+                return tuple(
+                    [getattr(x, "_cwtch_o", x) if isinstance(x, origin) else validator(x, T_arg) for x in value]
+                )
             if validator == validate_any:
                 return tuple(value)
             return tuple([validator(x, T_arg) for x in value])
@@ -531,15 +580,17 @@ def validate_set(value, T, /):
             try:
                 T_arg = args[0]
                 if T_arg == int:
-                    return set(x if isinstance(x, int) else PyNumber_Long(x) for x in value)
+                    return set(x if type(x) == int else PyNumber_Long(x) for x in value)
                 if T_arg == str:
-                    return set(x if isinstance(x, str) else f"{x}" for x in value)
+                    return set(validate_str(x, str) for x in value)
                 if T_arg == float:
-                    return set(x if isinstance(x, float) else PyNumber_Float(x) for x in value)
+                    return set(x if type(x) == float else PyNumber_Float(x) for x in value)
                 validator = get_validator(T_arg)
                 if validator == validate_type:
                     origin = getattr(T_arg, "__origin__", T_arg)
-                    return set(x if isinstance(x, origin) else validator(x, T_arg) for x in value)
+                    return set(
+                        getattr(x, "_cwtch_o", x) if isinstance(x, origin) else validator(x, T_arg) for x in value
+                    )
                 if validator == validate_any:
                     return value
                 return set(validator(x, T_arg) for x in value)
@@ -568,15 +619,15 @@ def validate_set(value, T, /):
         try:
             T_arg = args[0]
             if T_arg == int:
-                return set(x if isinstance(x, int) else PyNumber_Long(x) for x in value)
+                return set(x if type(x) == int else PyNumber_Long(x) for x in value)
             if T_arg == str:
-                return set(x if isinstance(x, str) else f"{x}" for x in value)
+                return set(validate_str(x, str) for x in value)
             if T_arg == float:
-                return set(x if isinstance(x, float) else PyNumber_Float(x) for x in value)
+                return set(x if type(x) == float else PyNumber_Float(x) for x in value)
             validator = get_validator(T_arg)
             if validator == validate_type:
                 origin = getattr(T_arg, "__origin__", T_arg)
-                return set(x if isinstance(x, origin) else validator(x, T_arg) for x in value)
+                return set(getattr(x, "_cwtch_o", x) if isinstance(x, origin) else validator(x, T_arg) for x in value)
             if validator == validate_any:
                 return set(x for x in value)
             return set(validator(x, T_arg) for x in value)
@@ -611,21 +662,19 @@ def validate_dict(value, T, /):
             if T_k == str:
                 if origin_v:
                     return {validate_str(k, T_k): validator_v(v, T_v) for k, v in value.items()}
-                return {
-                    validate_str(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()
-                }
+                return {validate_str(k, T_k): v if type(v) == T_v else validator_v(v, T_v) for k, v in value.items()}
             origin_k = getattr(T_k, "__origin__", None)
             validator_k = get_validator(origin_k or T_k)
             if origin_k is None and origin_v is None:
                 return {
-                    k if isinstance(k, T_k) else validator_k(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v)
+                    k if type(k) == T_k else validator_k(k, T_k): v if type(v) == T_v else validator_v(v, T_v)
                     for k, v in value.items()
                 }
             if origin_k and origin_v:
                 return {validator_k(k, T_k): validator_v(v, T_v) for k, v in value.items()}
             if origin_v:
-                return {k if isinstance(k, T_k) else validator_k(k, T_k): validator_v(v, T_v) for k, v in value.items()}
-            return {validator_k(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()}
+                return {k if type(k) == T_k else validator_k(k, T_k): validator_v(v, T_v) for k, v in value.items()}
+            return {validator_k(k, T_k): v if type(v) == T_v else validator_v(v, T_v) for k, v in value.items()}
         except (TypeError, ValueError, ValidationError) as e:
             validator_k = get_validator(getattr(T_k, "__origin__", T_k))
             for k, v in value.items():
@@ -664,21 +713,19 @@ def validate_mapping(value, T, /):
             if T_k == str:
                 if origin_v:
                     return {validate_str(k, T_k): validator_v(v, T_v) for k, v in value.items()}
-                return {
-                    validate_str(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()
-                }
+                return {validate_str(k, T_k): v if type(v) == T_v else validator_v(v, T_v) for k, v in value.items()}
             origin_k = getattr(T_k, "__origin__", None)
             validator_k = get_validator(origin_k or T_k)
             if origin_k is None and origin_v is None:
                 return {
-                    k if isinstance(k, T_k) else validator_k(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v)
+                    k if type(k) == T_k else validator_k(k, T_k): v if type(v) == T_v else validator_v(v, T_v)
                     for k, v in value.items()
                 }
             if origin_k and origin_v:
                 return {validator_k(k, T_k): validator_v(v, T_v) for k, v in value.items()}
             if origin_v:
-                return {k if isinstance(k, T_k) else validator_k(k, T_k): validator_v(v, T_v) for k, v in value.items()}
-            return {validator_k(k, T_k): v if isinstance(v, T_v) else validator_v(v, T_v) for k, v in value.items()}
+                return {k if type(k) == T_k else validator_k(k, T_k): validator_v(v, T_v) for k, v in value.items()}
+            return {validator_k(k, T_k): v if type(v) == T_v else validator_v(v, T_v) for k, v in value.items()}
         except (TypeError, ValueError, ValidationError) as e:
             validator_k = get_validator(getattr(T_k, "__origin__", T_k))
             for k, v in value.items():
@@ -738,7 +785,7 @@ def validate_annotated(value, T, /):
 @cython.cfunc
 def validate_union(value, T, /):
     for T_arg in T.__args__:
-        if getattr(T_arg, "__origin__", None) is None and (T_arg == Any or isinstance(value, T_arg)):
+        if getattr(T_arg, "__origin__", None) is None and (T_arg == Any or type(value) == T_arg):
             return value
     errors = []
     for T_arg in T.__args__:
@@ -783,9 +830,17 @@ def validate_typevar(value, T, /):
 
 
 @cython.cfunc
+def validate_type_wrapper(value, T, /):
+    if type(value) == T:
+        return value
+    return T(get_validator(T._cwtch_T)(value, T._cwtch_T))
+
+
+@cython.cfunc
 def default_validator(value, T, /):
     if getattr(T, "__bases__", None) is None:
         raise TypeError(f"{T} is not a type")
+    value = getattr(value, "_cwtch_o", value)
     if getattr(T, "__origin__", None) is None and isinstance(value, T):
         return value
     return T(value)
@@ -822,6 +877,7 @@ def __():
     validators_map[datetime.datetime] = validate_datetime
     validators_map[datetime.date] = validate_date
     validators_map[TypeVar] = validate_typevar
+    validators_map[TypeWrapperMeta] = validate_type_wrapper
 
     validators_map_get = validators_map.get
 

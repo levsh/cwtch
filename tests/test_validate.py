@@ -283,8 +283,8 @@ class TestValidateValue:
             assert validate_value((0, 1), T) == [0, 1]
             assert validate_value([0, 1], T[int]) == [0, 1]
             assert validate_value((0, 1), T[int]) == [0, 1]
-            assert validate_value([0, 1], T[str]) == ["0", "1"]
-            assert validate_value((0, 1), T[str]) == ["0", "1"]
+            assert validate_value(["0", "1"], T[str]) == ["0", "1"]
+            assert validate_value(("0", "1"), T[str]) == ["0", "1"]
             assert validate_value([0, "1"], T[int]) == [0, 1]
             assert validate_value((0, "1"), T[int]) == [0, 1]
             assert validate_value([[0], (1,)], T[T[int]]) == [[0], [1]]
@@ -614,6 +614,9 @@ class TestValidateValue:
         assert validate_value("1", T) == "1"
         T = Annotated[str, None] | int
         assert validate_value(1, T) == 1
+
+        assert validate_value([1], list[int] | list[str]) == [1]
+        assert validate_value(["a"], list[int] | list[str]) == ["a"]
 
     def test_validate_type_var(self):
         T = TypeVar("T")

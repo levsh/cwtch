@@ -2,7 +2,7 @@
 
 import importlib.metadata
 
-from cwtch.core import make_json_schema, register_json_schema_builder, register_validator, validate_value
+from cwtch.core import TypeWrapper, make_json_schema, register_json_schema_builder, register_validator, validate_value
 from cwtch.cwtch import (
     Field,
     asdict,
