@@ -791,7 +791,7 @@ def validate_union(value, T, /):
     for T_arg in T.__args__:
         try:
             return validate_value(value, T_arg)
-        except ValidationError as e:
+        except Exception as e:
             errors.append(e)
     raise ValidationError(value, T, errors)
 
