@@ -754,6 +754,19 @@ class TestModel:
         ):
             m = M(0, 1, "a")
 
+    def test_rebuild(self):
+        @dataclass
+        class M:
+            i: int = 1
+            l: list = field(default_factory=list, property=True, kw_only=False)
+
+        M.cwtch_rebuild()
+
+        assert M.__dataclass_fields__["i"].default == 1
+        assert M.__dataclass_fields__["l"].default_factory == list
+        assert M.__dataclass_fields__["l"].property is True
+        assert M.__dataclass_fields__["l"].kw_only is False
+
 
 class TestView:
     def test_view(self):

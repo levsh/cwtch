@@ -653,11 +653,7 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
     args = ["__cwtch_self__"]
 
     if fields:
-        # args.append("*")
         args.append("/")
-
-    if handle_circular_refs:
-        args.append("__cwtch_cache_key=None")
 
     body = ["__cwtch_fields_set__ = ()"]
 
@@ -822,6 +818,9 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
     else:
         body = ["pass"]
 
+    if handle_circular_refs:
+        args.append("__cwtch_cache_key=None")
+
     args += ["**__extra_kwds"]
 
     body += [
@@ -925,7 +924,10 @@ def _build(
     for f_name, f_type in __annotations__.items():
         if _is_classvar(f_type):
             continue
-        f = defaults.get(f_name, _MISSING)
+        if f_name in defaults:
+            f = defaults[f_name]
+        else:
+            f = __dataclass_fields__.get(f_name, _MISSING)
         if not isinstance(f, Field):
             f = Field(default=f)
             f._field_type = _FIELD
