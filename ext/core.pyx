@@ -1138,8 +1138,10 @@ def __():
 ) = __()
 
 
-def dumps_json(obj, encoder, context) -> bytes:
-    option = orjson.OPT_PASSTHROUGH_SUBCLASS | orjson.OPT_OMIT_MICROSECONDS
+def dumps_json(obj, encoder, context, omit_microseconds: bool | None = None) -> bytes:
+    option = orjson.OPT_PASSTHROUGH_SUBCLASS
+    if omit_microseconds:
+        option |= orjson.OPT_OMIT_MICROSECONDS
 
     if encoder:
 
