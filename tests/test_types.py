@@ -9,6 +9,7 @@ def test_SecretBytes():
     assert isinstance(b, bytes)
     assert b != b"secret"
     assert b == SecretBytes(b"secret")
+    assert (b != SecretBytes(b"secret")) is False
     assert str(b) == "b'***'"
     assert f"{b}" == "b'***'"
     assert repr(b) == "SecretBytes(***)"
@@ -22,6 +23,7 @@ def test_SecretStr():
     assert isinstance(s, str)
     assert s != "secret"
     assert s == SecretStr("secret")
+    assert (s != SecretStr("secret")) is False
     assert str(s) == "***"
     assert f"{s}" == "***"
     assert repr(s) == "SecretStr(***)"
@@ -52,6 +54,7 @@ def test_SecretUrl():
     assert isinstance(url, str)
     assert url != "http://user:pass@localhost:80/abc?x=y#z"
     assert url == SecretUrl("http://user:pass@localhost:80/abc?x=y#z")
+    assert (url != SecretUrl("http://user:pass@localhost:80/abc?x=y#z")) is False
     assert str(url) == "http://***:***@localhost:80/abc?x=y#z"
     assert f"{url}" == "http://***:***@localhost:80/abc?x=y#z"
     assert repr(url) == "SecretUrl(http://***:***@localhost:80/abc?x=y#z)"

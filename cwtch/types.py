@@ -50,7 +50,9 @@ class SecretBytes(bytes):
         return self._value == other._value
 
     def __ne__(self, other):
-        return True
+        if not isinstance(other, SecretBytes):
+            return True
+        return self._value != other._value
 
     def __len__(self):
         return len(self._value)
@@ -90,7 +92,9 @@ class SecretStr(str):
         return self._value == other._value
 
     def __ne__(self, other):
-        return True
+        if not isinstance(other, SecretStr):
+            return True
+        return self._value != other._value
 
     def __len__(self):
         return len(self._value)
@@ -235,7 +239,9 @@ class SecretUrl(str, _UrlMixIn):
         return self._value == other._value
 
     def __ne__(self, other):
-        return True
+        if not isinstance(other, SecretUrl):
+            return True
+        return self._value != other._value
 
     def __len__(self):
         return len(self._value)
