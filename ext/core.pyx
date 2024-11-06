@@ -117,7 +117,7 @@ class UnsetType:
         return "UNSET"
 
     @classmethod
-    def __cwtch_json_schema__(cls, context=None):
+    def __cwtch_json_schema__(cls, context=None) -> dict:
         return {}
 
 

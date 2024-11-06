@@ -767,6 +767,16 @@ class TestModel:
         assert M.__dataclass_fields__["l"].property is True
         assert M.__dataclass_fields__["l"].kw_only is False
 
+    def test_add_disable_validation_on_init(self):
+        @dataclass(add_disable_validation_to_init=True)
+        class M:
+            i: int
+
+        assert M(i="1").i == 1
+        with pytest.raises(ValidationError):
+            assert M(i="a")
+        assert M(i="a", disable_validation=True).i == "a"
+
 
 class TestView:
     def test_view(self):

@@ -17,6 +17,7 @@ from typing import Any, Callable, ClassVar, Generic, Literal, Type, Union, cast
 import rich.repr
 
 from cwtch.config import (
+    ADD_DISABLE_VALIDATION_TO_INIT,
     ATTACH,
     EQ,
     EXTRA,
@@ -183,6 +184,7 @@ def dataclass(
     env_prefix: Unset[str | Sequence[str]] = UNSET,
     env_source: Unset[Callable] = UNSET,
     validate: Unset[bool] = UNSET,
+    add_disable_validation_to_init: Unset[bool] = UNSET,
     show_input_value_on_error: Unset[bool] = UNSET,
     extra: Unset[Literal["ignore", "forbid"]] = UNSET,
     repr: Unset[bool] = UNSET,
@@ -198,6 +200,8 @@ def dataclass(
         env_prefix: prefix(or list of prefixes) for environment variables.
         env_source: environment variables source factory.
         validate: validate or not fields.
+        add_disable_validation_to_init: add `disable_validation` keywoard argument to __init__ method
+            to disable validation.
         extra: ignore or forbid extra arguments passed to init.
         repr: if true, a __rich_repr__ method will be generated and rich.repr.auto decorator applied to the class.
         eq: if true, an __eq__ method will be generated.
@@ -211,6 +215,8 @@ def dataclass(
         slots = SLOTS
     if validate is UNSET:
         validate = VALIDATE
+    if add_disable_validation_to_init is UNSET:
+        add_disable_validation_to_init = ADD_DISABLE_VALIDATION_TO_INIT
     if show_input_value_on_error is UNSET:
         show_input_value_on_error = SHOW_INPUT_VALUE_ON_ERROR
     if extra is UNSET:
@@ -230,6 +236,7 @@ def dataclass(
         env_prefix=env_prefix,
         env_source=env_source,
         validate=validate,
+        add_disable_validation_to_init=add_disable_validation_to_init,
         extra=extra,
         repr=repr,
         eq=eq,
@@ -248,6 +255,7 @@ def dataclass(
             ),
             env_source,
             cast(bool, validate),
+            cast(bool, add_disable_validation_to_init),
             cast(Literal["ignore", "forbid"], extra),
             cast(bool, repr),
             cast(bool, eq),
@@ -274,6 +282,7 @@ def view(
     env_prefix: Unset[str | Sequence[str]] = UNSET,
     env_source: Unset[Callable] = UNSET,
     validate: Unset[bool] = UNSET,
+    add_disable_validation_to_init: Unset[bool] = UNSET,
     extra: Unset[Literal["ignore", "forbid"]] = UNSET,
     repr: Unset[bool] = UNSET,
     eq: Unset[bool] = UNSET,
@@ -293,6 +302,9 @@ def view(
         env_source: environment variables source factory.
             If UNSET value from base view model will be used.
         validate: validate or not fields.
+            If UNSET value from base view model will be used.
+        add_disable_validation_to_init: add `disable_validation` keywoard argument to __init__ method
+            to disable validation.
             If UNSET value from base view model will be used.
         extra: ignore or forbid extra arguments passed to init.
             If UNSET value from base view model will be used.
@@ -326,6 +338,7 @@ def view(
         env_prefix=env_prefix,
         env_source=env_source,
         validate=validate,
+        add_disable_validation_to_init=add_disable_validation_to_init,
         extra=extra,
         repr=repr,
         eq=eq,
@@ -360,6 +373,7 @@ def view(
             ),
             env_source,
             validate,
+            add_disable_validation_to_init,
             extra,
             repr,
             eq,
@@ -484,6 +498,7 @@ def _instantiate_generic(tp):
                 view_params.get("env_prefix", UNSET),
                 view_params.get("env_source", UNSET),
                 view_params.get("validate", UNSET),
+                view_params.get("add_disable_validation_to_init", UNSET),
                 view_params.get("extra", UNSET),
                 view_params.get("repr", UNSET),
                 view_params.get("eq", UNSET),
@@ -634,7 +649,16 @@ def _create_fn(cls, name, args, body, *, globals=None, locals=None):
     return ns["_create_fn"](**locals)
 
 
-def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_circular_refs):
+def _create_init(
+    cls,
+    fields,
+    validate,
+    add_disable_validation_to_init,
+    extra,
+    env_prefixes,
+    env_source,
+    handle_circular_refs,
+):
     globals = {}
     locals = {
         "_MISSING": _MISSING,
@@ -785,12 +809,23 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
                 ]
             if field.validate is True or (field.validate is UNSET and validate is True):
                 locals[f"v_{f_name}"] = get_validator(field.type)
-                body += [
-                    f"{indent}try:",
-                    f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
-                    f"{indent}except (TypeError, ValueError, ValidationError) as e:",
-                    f"{indent}    raise ValidationError(..., __class__, [e], path=[f_{f_name}.name])",
-                ]
+                if add_disable_validation_to_init:
+                    body += [
+                        f"{indent}if disable_validation is not True:",
+                        f"{indent}    try:",
+                        f"{indent}        _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
+                        f"{indent}    except (TypeError, ValueError, ValidationError) as e:",
+                        f"{indent}        raise ValidationError(..., __class__, [e], path=[f_{f_name}.name])",
+                        f"{indent}else:",
+                        f"{indent}    _{f_name} = {f_name}",
+                    ]
+                else:
+                    body += [
+                        f"{indent}try:",
+                        f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
+                        f"{indent}except (TypeError, ValueError, ValidationError) as e:",
+                        f"{indent}    raise ValidationError(..., __class__, [e], path=[f_{f_name}.name])",
+                    ]
             else:
                 body += [
                     f"{indent}_{f_name} = {f_name}",
@@ -820,6 +855,9 @@ def _create_init(cls, fields, validate, extra, env_prefixes, env_source, handle_
 
     if handle_circular_refs:
         args.append("__cwtch_cache_key=None")
+
+    if add_disable_validation_to_init is True:
+        args += ["disable_validation=_MISSING"]
 
     args += ["**__extra_kwds"]
 
@@ -900,6 +938,7 @@ def _build(
     env_prefix: Unset[str | Sequence[str]],
     env_source: Unset[Callable],
     validate: bool,
+    add_disable_validation_to_init: bool,
     extra: Literal["ignore", "forbid"],
     repr: bool,
     eq: bool,
@@ -957,6 +996,7 @@ def _build(
             cls,
             __dataclass_fields__,
             validate,
+            add_disable_validation_to_init,
             extra,
             env_prefixes,
             env_source,
@@ -1000,6 +1040,7 @@ def _build(
             env_prefix=env_prefix,
             env_source=env_source,
             validate=validate,
+            add_disable_validation_to_init=add_disable_validation_to_init,
             extra=extra,
             repr=repr,
             eq=eq,
@@ -1027,6 +1068,7 @@ def _build(
             "env_prefix": env_prefix,
             "env_source": env_source,
             "validate": validate,
+            "add_disable_validation_to_init": add_disable_validation_to_init,
             "extra": extra,
             "repr": repr,
             "eq": eq,
@@ -1063,6 +1105,7 @@ def _build(
                         view_params.get("env_prefix", UNSET),
                         view_params.get("env_source", UNSET),
                         view_params.get("validate", UNSET),
+                        view_params.get("add_disable_validation_to_init", UNSET),
                         view_params.get("extra", UNSET),
                         view_params.get("repr", UNSET),
                         view_params.get("eq", UNSET),
@@ -1085,6 +1128,7 @@ def _build_view(
     env_prefix: Unset[str | Sequence[str]],
     env_source: Unset[Callable],
     validate: Unset[bool],
+    add_disable_validation_to_init: Unset[bool],
     extra: Unset[Literal["ignore", "forbid"]],
     repr: Unset[bool],
     eq: Unset[bool],
@@ -1142,6 +1186,7 @@ def _build_view(
         "env_prefix": __cwtch_params__["env_prefix"],
         "env_source": __cwtch_params__["env_source"],
         "validate": __cwtch_params__["validate"],
+        "add_disable_validation_to_init": __cwtch_params__["add_disable_validation_to_init"],
         "repr": __cwtch_params__["repr"],
         "eq": __cwtch_params__["eq"],
         "extra": __cwtch_params__["extra"],
@@ -1167,6 +1212,8 @@ def _build_view(
         __cwtch_view_params__["env_source"] = env_source
     if validate is not UNSET:
         __cwtch_view_params__["validate"] = validate
+    if add_disable_validation_to_init is not UNSET:
+        __cwtch_view_params__["add_disable_validation_to_init"] = add_disable_validation_to_init
     if repr is not UNSET:
         __cwtch_view_params__["repr"] = repr
     if eq is not UNSET:
@@ -1231,6 +1278,7 @@ def _build_view(
             view_cls,
             __dataclass_fields__,
             __cwtch_view_params__["validate"],
+            __cwtch_view_params__["add_disable_validation_to_init"],
             __cwtch_view_params__["extra"],
             env_prefixes,
             __cwtch_view_params__["env_source"],
@@ -1293,6 +1341,7 @@ def _build_view(
             env_prefix=env_prefix,
             env_source=env_source,
             validate=validate,
+            add_disable_validation_to_init=add_disable_validation_to_init,
             extra=extra,
             repr=repr,
             eq=eq,
