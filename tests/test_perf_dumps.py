@@ -15,7 +15,7 @@ RANGE = 100
 def test_perf_cwtch_json(benchmark):
     model = C(**data)
 
-    dumps = cwtch.dumps
+    dumps = cwtch.dumps_json
 
     benchmark(lambda: [dumps(model) for _ in range(RANGE)])
 

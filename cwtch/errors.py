@@ -4,6 +4,9 @@ from typing import Any
 from cwtch.config import SHOW_INPUT_VALUE_ON_ERROR
 
 
+__all__ = ("Error", "ValidationError")
+
+
 class Error(Exception):
     pass
 

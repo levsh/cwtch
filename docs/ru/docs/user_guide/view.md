@@ -3,9 +3,6 @@
 Представления или view могут быть полезны когда нужно удалить/добавить поле или поменять его тип
 без полного дублирования исходной модели.
 
-!!! note
-    Представление должно наследоваться от основной модели.
-
 ```python
 from cwtch import dataclass, view
 
@@ -15,12 +12,12 @@ class Model:
     s: str
     f: float
 
-@view('V1', exclude=['s'])
-class ModelV1(Model):
+@view(Model, 'V1', exclude=['s'])
+class ModelV1:
     f: int
 
-@view('V2', include=['s'])
-class ModelV2(Model):
+@view(Model, 'V2', include=['s'])
+class ModelV2:
     pass
 
 model = Model(i=0, s="s", f=1.1)
@@ -56,17 +53,17 @@ class A:
     i: int
     s: str
 
-@view('V', exclude=["s"], recursiv=True)
-class AV(A):
+@view(A, 'V', exclude=["s"], recursive=True)
+class AV:
     pass
 
 @dataclass
 class B:
     a: A
 
-@view('V')
-class BV(B):
+@view(B, 'V')
+class BV:
     pass
 
-assert B.V.__cwtch_fields__["a"].type == A.V
+assert B.V.__dataclass_fields__["a"].type == A.V
 ```

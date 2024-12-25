@@ -787,20 +787,20 @@ class TestView:
             b: bool
             l: Optional[list[int]] = None
 
-        @view
-        class V1(M):
+        @view(M)
+        class V1:
             pass
 
-        @view(include={"i"})
-        class V2(M):
+        @view(M, include={"i"})
+        class V2:
             i: int = 0
 
-        @view(exclude={"s", "b", "l"})
-        class V3(M):
+        @view(M, exclude={"s", "b", "l"})
+        class V3:
             i: int = 0
 
-        @view(include={"i", "f"})
-        class V4(M):
+        @view(M, include={"i", "f"})
+        class V4:
             f: float = 0.1
 
         assert M.__annotations__ == {"i": int, "s": str, "b": bool, "l": Optional[list[int]]}
@@ -918,12 +918,12 @@ class TestView:
         class M:
             i: int
 
-        @view
-        class V1(M):
+        @view(M)
+        class V1:
             pass
 
-        @view(extra="forbid")
-        class V2(M):
+        @view(M, extra="forbid")
+        class V2:
             pass
 
         v1 = M.V1(i="1", b="n")
@@ -938,12 +938,12 @@ class TestView:
             i: int
             b: bool
 
-        @view
-        class V1(M):
+        @view(M)
+        class V1:
             b: bool = field(validate=False)
 
-        @view(validate=False)
-        class V2(M):
+        @view(M, validate=False)
+        class V2:
             b: bool = field(validate=True)
 
         assert M.V1(i="1", b=True).i == 1
@@ -957,16 +957,16 @@ class TestView:
             i: Optional[int] = None
             s: Optional[str] = None
 
-        @view("V", include=["i"])
-        class AV(A):
+        @view(A, "V", include=["i"])
+        class AV:
             pass
 
         @dataclass
         class B:
             a: Optional[list[A]]
 
-        @view("V", recursive=True)
-        class BV(B):
+        @view(B, "V", recursive=True)
+        class BV:
             pass
 
         assert B.__dataclass_fields__["a"].type == Optional[list[A]]
@@ -977,20 +977,20 @@ class TestView:
         class A:
             i: int
 
-        @view("V1")
-        class AV1(A):
+        @view(A, "V1")
+        class AV1:
             pass
 
-        @view("V2")
-        class AV2(A):
+        @view(A, "V2")
+        class AV2:
             pass
 
         @dataclass
         class B(A):
             s: str
 
-        @view("V2")
-        class BV2(B, A.V2):
+        @view(B, "V2")
+        class BV2(A.V2):
             pass
 
         assert issubclass(B, A)
@@ -1004,8 +1004,8 @@ class TestView:
         class M:
             i: int
 
-        @view
-        class V1(M):
+        @view(M)
+        class V1:
             pass
 
 

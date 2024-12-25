@@ -30,8 +30,8 @@ def test_model():
     class M:
         dt: DateTime
 
-    @view
-    class V(M):
+    @view(M)
+    class V:
         dt: datetime.datetime
 
     m = M("1970-01-01")

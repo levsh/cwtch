@@ -51,23 +51,23 @@ class TestGeneric:
         class M(Generic[T]):
             t: T
 
-        @view
-        class V1(M, Generic[F]):
+        @view(M)
+        class V1(Generic[F]):
             f: F
 
-        @view(exclude=["t"])
-        class V2(M):
+        @view(M, exclude=["t"])
+        class V2:
             f: float
 
-        @view(exclude=["t"])
-        class V3(M, Generic[F]):
+        @view(M, exclude=["t"])
+        class V3(Generic[F]):
             f: F
 
-        @view
-        class V4(M):
+        @view(M)
+        class V4:
             t: T = 0
 
-        @view
+        @view(M)
         class V5(V4):
             pass
 
@@ -129,8 +129,8 @@ class TestGeneric:
         class A(Generic[T]):
             x: T
 
-        @view("V")
-        class AV(A):
+        @view(A, "V")
+        class AV:
             x: int
 
         @dataclass
@@ -138,8 +138,8 @@ class TestGeneric:
             # x: str
             pass
 
-        @view("V")
-        class BV(B):
+        @view(B, "V")
+        class BV:
             x: bool
 
         assert A.__dataclass_fields__["x"].type == T
@@ -154,8 +154,8 @@ class TestGeneric:
         class M(Generic[T]):
             f: T = field(default_factory=T)
 
-        @view("V")
-        class MV(M):
+        @view(M, "V")
+        class MV:
             pass
 
         assert M[int]().f == 0

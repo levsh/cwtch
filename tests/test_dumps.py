@@ -2,7 +2,7 @@ import datetime
 
 from uuid import UUID, uuid4
 
-from cwtch import dataclass, dumps
+from cwtch import dataclass, dumps_json
 from cwtch.types import SecretStr, SecretUrl, Url
 
 
@@ -14,7 +14,7 @@ class TestDumps:
             s: str
             b: bool
 
-        assert dumps(M(i=0, s="a", b=True)) == b'{"i":0,"s":"a","b":true}'
+        assert dumps_json(M(i=0, s="a", b=True)) == b'{"i":0,"s":"a","b":true}'
 
     def test_types(self):
         @dataclass
@@ -24,7 +24,7 @@ class TestDumps:
             secret_str: SecretStr
 
         assert (
-            dumps(
+            dumps_json(
                 M(
                     url="http://example.com",
                     secret_url="http://user:pass@secret.com",
@@ -35,7 +35,7 @@ class TestDumps:
         )
 
         assert (
-            dumps(
+            dumps_json(
                 M(
                     url="http://example.com",
                     secret_url="http://user:pass@secret.com",
@@ -70,7 +70,7 @@ class TestDumps:
         )
 
         assert (
-            dumps(m)
+            dumps_json(m)
             == b'{"id":"7f799175-bdcf-4d61-95b8-238746c0017f","date":"1970-01-01","datetime":"1970-01-01T00:00:00","time":"00:00:00"}'
         )
 
@@ -105,4 +105,4 @@ class TestDumps:
             CustomTime(0, 0),
         )
 
-        assert dumps(m) == b'{"id":"uuid","date":"date","datetime":"datetime","time":"time"}'
+        assert dumps_json(m) == b'{"id":"uuid","date":"date","datetime":"datetime","time":"time"}'
