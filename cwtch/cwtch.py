@@ -921,6 +921,22 @@ def _create_init(
     return __init__
 
 
+def _create_repr(cls):
+    globals = {}
+    locals = {}
+
+    args = ["__cwtch_self__"]
+
+    body = ['return f"{__cwtch_self__.__class__.__name__}()"']
+
+    __repr__ = _create_fn(cls, "__repr__", args, body, globals=globals, locals=locals)
+
+    __repr__.__module__ = cls.__module__
+    __repr__.__qualname__ = f"{cls.__name__}.__repr__"
+
+    return __repr__
+
+
 def _create_rich_repr(cls, fields):
     globals = {}
     locals = {}
@@ -932,7 +948,7 @@ def _create_rich_repr(cls, fields):
     body = []
 
     if not fields:
-        raise Exception("unable to create __rich_repr__ method, all fields disable `repr`")
+        return
 
     for f_name in fields:
         body.append(f"yield '{f_name}', __cwtch_self__.{f_name}")
@@ -1047,8 +1063,13 @@ def _build(
     )
 
     if repr:
-        setattr(cls, "__rich_repr__", _create_rich_repr(cls, __dataclass_fields__))
-        rich.repr.auto()(cls)  # type: ignore
+        __rich_repr__ = _create_rich_repr(cls, __dataclass_fields__)
+        if __rich_repr__:
+            setattr(cls, "__rich_repr__", __rich_repr__)
+            rich.repr.auto()(cls)  # type: ignore
+        else:
+            __repr__ = _create_repr(cls)
+            setattr(cls, "__repr__", __repr__)
 
     if eq:
         setattr(cls, "__eq__", _create_eq(cls, __dataclass_fields__))
@@ -1341,12 +1362,13 @@ def _build_view(
     )
 
     if __cwtch_view_params__["repr"]:
-        setattr(
-            view_cls,
-            "__rich_repr__",
-            _create_rich_repr(view_cls, __dataclass_fields__),
-        )
-        rich.repr.auto()(view_cls)  # type: ignore
+        __rich_repr__ = _create_rich_repr(view_cls, __dataclass_fields__)
+        if __rich_repr__:
+            setattr(view_cls, "__rich_repr__", __rich_repr__)
+            rich.repr.auto()(view_cls)  # type: ignore
+        else:
+            __repr__ = _create_repr(view_cls)
+            setattr(cls, "__repr__", __repr__)
 
     if __cwtch_view_params__["eq"]:
         setattr(
