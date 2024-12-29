@@ -31,5 +31,5 @@ D(i=0, s='1', b=False)
 ...
 ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
   type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'a' ]
-    Error: invalid literal for int() with base 10: 'a'
+    ValueError: invalid literal for int() with base 10: 'a'
 ```

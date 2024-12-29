@@ -13,7 +13,6 @@ In [2]: @dataclass
    ...: class D:
    ...:     i: int
    ...:     s: str = field(validate=False)
-   ...: 
 
 In [3]: D(i=1, s='s')
 Out[3]: D(i=1, s='s')
@@ -30,4 +29,4 @@ File <string>:12, in __init__(__cwtch_self__, i, s, **__extra_kwds)
 
 ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
   type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'i' ]
-    Error: invalid literal for int() with base 10: 'i'
+    ValueError: invalid literal for int() with base 10: 'i'

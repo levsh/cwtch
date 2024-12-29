@@ -25,7 +25,7 @@ class TestGeneric:
                 (
                     "type[ <class 'cwtch.cwtch.M[int]'> ] path[ 'l' ]\n"
                     "  type[ list[int] ] input_type[ <class 'list'> ] path[ 0 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "    Error: invalid literal for int() with base 10: 'a'"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -37,7 +37,7 @@ class TestGeneric:
                 (
                     "type[ <class 'cwtch.cwtch.M[int]'> ] path[ 'l' ]\n"
                     "  type[ list[int] ] input_type[ <class 'list'> ] path[ 0 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "    Error: invalid literal for int() with base 10: 'a'"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):

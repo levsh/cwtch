@@ -127,7 +127,7 @@ class D:
 ...
 ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
   type[ Annotated[int, Ge(value=1)] ] input_type[ <class 'int'> ] input_value[ 0 ]
-    Error: value should be >= 1
+    ValueError: value should be >= 1
 ```
 
 ```python
@@ -135,5 +135,5 @@ ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
 ...
 ValidationError: type[ <class '__main__.D'> ] path[ 'items' ]
   type[ Annotated[list[int], MinItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [] ]
-    Error: items count should be >= 1
+    ValueError: items count should be >= 1
 ```

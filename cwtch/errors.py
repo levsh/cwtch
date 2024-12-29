@@ -34,7 +34,7 @@ class ValidationError(Error):
                 [
                     indent(
                         (
-                            f"Error: {e}"
+                            f"{e.__class__.__name__}: {e}"
                             if not isinstance(e, ValidationError)
                             else f"{e._sub_error_str(sub_errors_show_value)}"
                         ),
@@ -70,7 +70,7 @@ class ValidationError(Error):
                 [
                     indent(
                         (
-                            f"Error: {e}"
+                            f"{e.__class__.__name__}: {e}"
                             if not isinstance(e, ValidationError)
                             else f"{e._sub_error_str(sub_errors_show_value)}"
                         ),
