@@ -370,6 +370,21 @@ class TestMetadata:
 
 
 class TestModel:
+    def test_dict(self):
+        @dataclass
+        class M:
+            i: int
+            j: int = 1
+            k: int = field(default=2)
+            l: int = field(default_factory=lambda: 3)
+
+        with pytest.raises(AttributeError):
+            M.i
+        assert M.j == 1
+        assert M.k == 2
+        with pytest.raises(AttributeError):
+            M.l
+
     def test_validate_value(self):
         @dataclass
         class M:
@@ -800,6 +815,24 @@ class TestModel:
 
 
 class TestView:
+    def test_dict(self):
+        @dataclass
+        class M:
+            i: int
+            j: int = 1
+            k: int = field(default=2)
+            l: int = field(default_factory=lambda: 3)
+
+        @view(M)
+        class V: ...
+
+        with pytest.raises(AttributeError):
+            V.i
+        assert V.j == 1
+        assert V.k == 2
+        with pytest.raises(AttributeError):
+            V.l
+
     def test_view(self):
         @dataclass
         class M:
@@ -1029,6 +1062,10 @@ class TestView:
         class V1:
             pass
 
+        @view(M)
+        class V2:
+            i: Unset[int] = UNSET
+
     def test_view_from_view(self):
         @dataclass
         class M:
@@ -1046,6 +1083,38 @@ class TestView:
         assert "i" in V2.__dataclass_fields__
         assert V2.__dataclass_fields__["i"].default == 1
         assert "s" not in V2.__dataclass_fields__
+
+    def test_rebuild(self):
+        @dataclass
+        class M:
+            a: int
+            b: int = 1
+            c: Unset[int] = UNSET
+
+        assert M.__dataclass_fields__["a"].default is _MISSING
+        assert M.__dataclass_fields__["b"].default == 1
+        assert M.__dataclass_fields__["c"].default is UNSET
+
+        @view(M, exclude=["a"])
+        class V:
+            b: Unset[int] = UNSET
+
+        assert V.__dataclass_fields__["b"].default == UNSET
+        assert V.__dataclass_fields__["c"].default is UNSET
+
+        M.cwtch_rebuild()
+        M.cwtch_rebuild()
+        assert M.__dataclass_fields__["a"].default is _MISSING
+        assert M.__dataclass_fields__["b"].default == 1
+        assert M.__dataclass_fields__["c"].default is UNSET
+
+        assert V.__dataclass_fields__["b"].default == UNSET
+        assert V.__dataclass_fields__["c"].default is UNSET
+
+        M.cwtch_rebuild()
+        M.cwtch_rebuild()
+        assert V.__dataclass_fields__["b"].default == UNSET
+        assert V.__dataclass_fields__["c"].default is UNSET
 
 
 class TestJsonSchema:

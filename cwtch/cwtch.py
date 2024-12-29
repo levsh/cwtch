@@ -1053,7 +1053,7 @@ def _build(
         if isinstance(v, Field) and k not in __annotations__:
             raise TypeError(f"{k} is a field but has no type annotation")
 
-    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
+    defaults = {k: __dict__[k] for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
 
     __dataclass_fields__ = getattr(cls, "__dataclass_fields__", {})
 
@@ -1080,6 +1080,12 @@ def _build(
         __dataclass_fields__[f_name] = f
 
     __dataclass_fields__ = _sort_dataclass_fields(__dataclass_fields__, base_fields, kw_only)
+
+    for f in __dataclass_fields__.values():
+        if not slots and f.default is not _MISSING:
+            __dict__[f.name] = f.default
+        else:
+            __dict__.pop(f.name, None)
 
     if not rebuild:
         if slots:
@@ -1333,8 +1339,6 @@ def _build_view(
     if handle_circular_refs is not UNSET:
         __cwtch_view_params__["handle_circular_refs"] = handle_circular_refs
 
-    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
-
     __dataclass_fields__ = {k: _copy_field(v) for k, v in cls.__dataclass_fields__.items()}
 
     if hasattr(view_cls, "__dataclass_fields__"):
@@ -1345,6 +1349,8 @@ def _build_view(
                 __dataclass_fields__.update({k: _copy_field(v) for k, v in base.__dataclass_fields__.items()})
 
     base_fields = __dataclass_fields__
+
+    defaults = {k: __dict__[k] for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
 
     for f_name, f_type in __annotations__.items():
         if _is_classvar(f_type):
@@ -1392,6 +1398,12 @@ def _build_view(
         env_prefixes = __cwtch_view_params__["env_prefix"]
     else:
         env_prefixes = [__cwtch_view_params__["env_prefix"]]
+
+    for f in __dataclass_fields__.values():
+        if not __cwtch_view_params__["slots"] and f.default is not _MISSING:
+            __dict__[f.name] = f.default
+        else:
+            __dict__.pop(f.name, None)
 
     if not rebuild:
         if __cwtch_view_params__["slots"]:
