@@ -175,6 +175,12 @@ class TypeWrapperMeta(type):
 
         return super().__new__(cls, name, bases, ns)
 
+    def __getattr__(self, name):
+        return getattr(self._cwtch_T, name)
+
+    def __subclasscheck__(cls, subclass):
+        return issubclass(subclass, cls._cwtch_T)
+
     def __instancecheck__(self, instance):
         return isinstance(instance, self._cwtch_T)
 

@@ -4,6 +4,13 @@ from cwtch import TypeWrapper, dataclass, validate_value, view
 from cwtch.cwtch import view
 
 
+def test_Typerapper():
+    class DateTime(TypeWrapper[datetime.datetime]): ...
+
+    assert DateTime.utcnow()
+    assert issubclass(datetime.datetime, DateTime)
+
+
 def test_validate_value():
     class DateTime(TypeWrapper[datetime.datetime]):
         def __cwtch_asjson__(self, **kwds):
