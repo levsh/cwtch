@@ -10,7 +10,6 @@ extension = Extension(
     [
         os.path.join(cython_dir, "core.pyx"),
     ],
-    extra_compile_args=["-O2", "-std=c2x"],
 )
 
 ext_modules = cythonize([extension], include_path=[cython_dir])
