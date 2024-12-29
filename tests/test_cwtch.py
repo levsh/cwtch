@@ -777,6 +777,27 @@ class TestModel:
             assert M(i="a")
         assert M(i="a", disable_validation=True).i == "a"
 
+    def test_fields_init_order(self):
+        @dataclass
+        class A:
+            a: int
+            b: int | None = None
+
+        @dataclass
+        class B(A):
+            c: int
+            d: int | None = None
+            e: int = field(3, kw_only=True)
+
+        assert list(B.__dataclass_fields__.keys()) == ["a", "c", "b", "d", "e"]
+
+        b = B(1, 2)
+        assert b.a == 1
+        assert b.b is None
+        assert b.c == 2
+        assert b.d is None
+        assert b.e == 3
+
 
 class TestView:
     def test_view(self):
@@ -1007,6 +1028,24 @@ class TestView:
         @view(M)
         class V1:
             pass
+
+    def test_view_from_view(self):
+        @dataclass
+        class M:
+            i: int
+            s: str
+
+        @view(M, exclude=["s"])
+        class V1:
+            i: int = 1
+
+        @view(V1)
+        class V2:
+            pass
+
+        assert "i" in V2.__dataclass_fields__
+        assert V2.__dataclass_fields__["i"].default == 1
+        assert "s" not in V2.__dataclass_fields__
 
 
 class TestJsonSchema:

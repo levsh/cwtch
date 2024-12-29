@@ -40,10 +40,8 @@ from .errors import ValidationError
 
 
 __all__ = (
-    "CACHE",
     "get_validator",
     "validate_value",
-    "validate_value_using_validator",
     "register_validator",
     "get_json_schema_builder",
     "make_json_schema",
@@ -61,7 +59,7 @@ cdef extern from "Python.h":
     object PyObject_Call(object callable_, object args, object kwargs)
 
 
-CACHE = ContextVar("cache", default={})
+_CACHE = ContextVar("cache", default={})
 
 TRUE_MAP = (True, 1, "1", "true", "t", "y", "yes", "True", "TRUE", "Y", "Yes", "YES")
 FALSE_MAP = (False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No", "NO")
@@ -95,7 +93,29 @@ class _MissingType:
 
 _MISSING = _MissingType()
 
-Missing = T | _MissingType
+_Missing = T | _MissingType
+
+
+class _DefaultType:
+    """Type to mark value has `default` or `default factory`. Internal use only."""
+
+    def __copy__(self, *args, **kwds):
+        return self
+
+    def __deepcopy__(self, *args, **kwds):
+        return self
+
+    def __bool__(self):
+        return False
+
+    def __str__(self):
+        return "_DEFAULT"
+
+    def __repr__(self):
+        return "_DEFAULT"
+
+
+_DEFAULT = _DefaultType()
 
 
 class UnsetType:
@@ -330,7 +350,7 @@ def validate_type(value, T, /):
             return value
     if (fields := getattr(origin, "__dataclass_fields__", None)) is not None:
         if getattr(origin, "__cwtch_handle_circular_refs__", None):
-            cache = CACHE.get()
+            cache = _CACHE.get()
             cache_key = (T, id(value))
             if (cache_value := cache.get(cache_key)) is not None:
                 return cache_value if not cache["reset_circular_refs"] else UNSET
@@ -890,7 +910,7 @@ def __():
             return validator(value, T)
         except ValidationError as e:
             raise e
-        except (TypeError, ValueError) as e:
+        except Exception as e:
             raise ValidationError(value, T, [e])
 
     def validate_value(value: Any, T: Type):
@@ -898,7 +918,7 @@ def __():
             return get_validator(T)(value, T)
         except ValidationError as e:
             raise e
-        except (TypeError, ValueError) as e:
+        except Exception as e:
             raise ValidationError(value, T, [e])
 
     def register_validator(T: Type, validator: Callable[[Any, Type], Any], force: bool | None = None):

@@ -6,7 +6,7 @@ authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 keywords = []
-packages = [{ include = "cwtch" }, { include = "ext/*.pyx" }]
+packages = [{ include = "cwtch" }, { include = "src/*.pyx" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",
@@ -25,6 +25,7 @@ rich = "*"
 [tool.poetry.group.test.dependencies]
 attrs = "*"
 coverage = "*"
+emval = "*"
 invoke = "*"
 msgspec = "*"
 pydantic = "^2"

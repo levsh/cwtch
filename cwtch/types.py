@@ -5,8 +5,9 @@ from ipaddress import ip_address
 from typing import Annotated, TypeVar
 from urllib.parse import urlparse
 
+from cwtch import metadata
 from cwtch.core import UNSET, AsDictKwds, Unset, UnsetType  # noqa
-from cwtch.metadata import Ge, MinItems, MinLen, Strict, ToLower, ToUpper
+from cwtch.metadata import Ge, MinItems, MinLen, Strict, ToLower, ToUpper, UrlConstraints
 
 
 __all__ = (
@@ -290,3 +291,13 @@ class SecretUrl(str, _UrlMixIn):
 
     def get_secret_value(self) -> str:
         return self._value
+
+
+HttpUrl = Annotated[Url, UrlConstraints(shemes=["http", "https"])]
+SecretHttpUrl = Annotated[SecretUrl, UrlConstraints(shemes=["http", "https"])]
+WebsocketpUrl = Annotated[Url, UrlConstraints(shemes=["ws", "wss"])]
+FileUrl = Annotated[Url, UrlConstraints(shemes=["file"])]
+FtpUrl = Annotated[Url, UrlConstraints(shemes=["ftp"])]
+
+if getattr(metadata, "EmailValidator", None):
+    Email = Annotated[str, metadata.EmailValidator()]

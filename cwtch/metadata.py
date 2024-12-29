@@ -5,6 +5,12 @@ import typing
 
 from typing import Any, Type, TypeVar
 
+
+try:
+    import emval
+except ImportError:
+    emval = None
+
 from cwtch import dataclass, field
 from cwtch.core import TypeMetadata
 
@@ -32,12 +38,17 @@ __all__ = (
 T = TypeVar("T")
 
 
+def nop(v):
+    return v
+
+
 @typing.final
 @dataclass(slots=True)
 class Validator(TypeMetadata):
-    json_schema: dict = field(default_factory=dict)  # type: ignore
-    before: typing.Callable = field(default=lambda v: v, kw_only=True)
-    after: typing.Callable = field(default=lambda v: v, kw_only=True)
+
+    json_schema: dict = field(default_factory=dict, repr=False)  # type: ignore
+    before: typing.Callable = field(default=nop, kw_only=True)
+    after: typing.Callable = field(default=nop, kw_only=True)
 
     def __init_subclass__(cls, **kwds):
         raise Exception("Validator class cannot be inherited")
@@ -50,7 +61,7 @@ class Ge(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minimum": self.value}
 
-    def after(self, value):
+    def after(self, value, /):
         if value < self.value:
             raise ValueError(f"value should be >= {self.value}")
         return value
@@ -63,7 +74,7 @@ class Gt(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minimum": self.value, "exclusiveMinimum": True}
 
-    def after(self, value):
+    def after(self, value, /):
         if value <= self.value:
             raise ValueError(f"value should be > {self.value}")
         return value
@@ -76,7 +87,7 @@ class Le(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maximum": self.value}
 
-    def after(self, value):
+    def after(self, value, /):
         if value > self.value:
             raise ValueError(f"value should be <= {self.value}")
         return value
@@ -89,7 +100,7 @@ class Lt(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maximum": self.value, "exclusiveMaximum": True}
 
-    def after(self, value):
+    def after(self, value, /):
         if value >= self.value:
             raise ValueError(f"value should be < {self.value}")
         return value
@@ -102,7 +113,7 @@ class MinLen(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minLength": self.value}
 
-    def after(self, value):
+    def after(self, value, /):
         if len(value) < self.value:
             raise ValueError(f"value length should be >= {self.value}")
         return value
@@ -115,7 +126,7 @@ class MaxLen(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maxLength": self.value}
 
-    def after(self, value):
+    def after(self, value, /):
         if len(value) > self.value:
             raise ValueError(f"value length should be <= {self.value}")
         return value
@@ -129,7 +140,7 @@ class Len(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minLength": self.min_value, "maxLength": self.max_value}
 
-    def after(self, value):
+    def after(self, value, /):
         if len(value) < self.min_value:
             raise ValueError(f"value length should be >= {self.min_value}")
         if len(value) > self.max_value:
@@ -144,7 +155,7 @@ class MinItems(TypeMetadata):
     def json_schema(self) -> dict:
         return {"minItems": self.value}
 
-    def after(self, value):
+    def after(self, value, /):
         if len(value) < self.value:
             raise ValueError(f"items count should be >= {self.value}")
         return value
@@ -157,7 +168,7 @@ class MaxItems(TypeMetadata):
     def json_schema(self) -> dict:
         return {"maxItems": self.value}
 
-    def after(self, value):
+    def after(self, value, /):
         if len(value) > self.value:
             raise ValueError(f"items count should be <= {self.value}")
         return value
@@ -170,7 +181,7 @@ class Match(TypeMetadata):
     def json_schema(self) -> dict:
         return {"pattern": self.pattern.pattern}
 
-    def after(self, value: str):
+    def after(self, value: str, /):
         if not self.pattern.match(value):
             raise ValueError(f"value doesn't match pattern {self.pattern}")
         return value
@@ -239,3 +250,24 @@ class Strict(TypeMetadata):
             if isinstance(value, tp) and type(value) == tp:  # noqa: E721
                 return value
         raise ValueError(f"invalid value for {' | '.join(map(str, typing.cast(list, self.type)))}")
+
+
+if emval:
+
+    @dataclass(slots=True)
+    class EmailValidator(TypeMetadata):
+        validator: emval.EmailValidator = field(
+            default_factory=lambda: emval.EmailValidator(
+                allow_smtputf8=True,
+                allow_empty_local=True,
+                allow_quoted_local=True,
+                allow_domain_literal=True,
+                deliverable_address=False,
+            )
+        )
+
+        def json_schema(self) -> dict:
+            return {"format": "email"}
+
+        def after(self, value, /):
+            return self.validator.validate_email(value)

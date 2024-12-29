@@ -1,6 +1,4 @@
 # ruff: noqa: F401
-
-
 import functools
 import json
 import os
@@ -11,6 +9,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import _FIELD, _DataclassParams  # type: ignore
 from inspect import _empty, signature
+from itertools import chain
 from types import UnionType, new_class
 from typing import Any, Callable, ClassVar, Generic, Literal, Type, TypeVar, Union, cast, dataclass_transform
 
@@ -29,7 +28,7 @@ from cwtch.config import (
     SLOTS,
     VALIDATE,
 )
-from cwtch.core import _MISSING, CACHE, UNSET, Missing, Unset
+from cwtch.core import _CACHE, _DEFAULT, _MISSING, UNSET, Unset, _Missing
 from cwtch.core import asdict as _asdict
 from cwtch.core import dumps_json as _dumps_json
 from cwtch.core import get_validator, validate_value, validate_value_using_validator
@@ -62,16 +61,15 @@ def _is_classvar(tp) -> bool:
 
 
 def is_cwtch_model(cls) -> bool:
-    """Check if class is cwtch model."""
+    """Check if class is a cwtch model."""
 
     return bool(getattr(cls, "__cwtch_model__", None) and not getattr(cls, "__cwtch_view__", None))
 
 
 def is_cwtch_view(cls) -> bool:
-    """Check if class is cwtch view."""
+    """Check if class is a cwtch view."""
 
     return bool(getattr(cls, "__cwtch_model__", None) and getattr(cls, "__cwtch_view__", None))
-    # return bool(getattr(cls, "__cwtch_view__", None) and not getattr(cls, "__cwtch_model__", None))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -99,7 +97,7 @@ class Field:
         self,
         *,
         default=_MISSING,
-        default_factory: Missing[Callable] = _MISSING,
+        default_factory: _Missing[Callable] = _MISSING,
         init: bool = True,
         init_alias: Unset[str] = UNSET,
         repr: Unset[Literal[False]] = UNSET,
@@ -177,7 +175,7 @@ class Field:
 def field(
     default=_MISSING,
     *,
-    default_factory: Missing[Callable] = _MISSING,
+    default_factory: _Missing[Callable] = _MISSING,
     init: bool = True,
     init_alias: Unset[str] = UNSET,
     repr: Unset[Literal[False]] = UNSET,
@@ -276,9 +274,6 @@ def dataclass(
         recursive=recursive,
         handle_circular_refs=handle_circular_refs,
     ):
-        # if getattr(cls, "__cwtch_asjson__", None) is not None:
-        #     logger.warning("Method __cwtch_asjson__ is not applicable to dataclass")
-
         return _build(
             cls,
             cast(bool, slots),
@@ -359,11 +354,8 @@ def view(
             If UNSET value from base view model will be used.
     """
 
-    if not is_cwtch_model(base_cls):
-        raise TypeError(f"{base_cls} is not valid cwtch model")
-
-    if attach is UNSET:
-        attach = ATTACH
+    if not (is_cwtch_model(base_cls) or is_cwtch_view(base_cls)):
+        raise TypeError(f"{base_cls} is not a valid cwtch model or view")
 
     def wrapper(
         view_cls,
@@ -473,7 +465,8 @@ def _instantiate_generic(tp):
         cls.__annotations__ = _get_substituted_annotations(cls, fields_subst)
 
     for k, v in cls.__dataclass_fields__.items():
-        setattr(cls, k, v)
+        if v.default is not _MISSING:
+            setattr(cls, k, v)
 
     cls = cls.cwtch_rebuild()
 
@@ -699,7 +692,8 @@ def _create_init(
     globals = {}
     locals = {
         "_MISSING": _MISSING,
-        "_cache_get": CACHE.get,
+        "_DEFAULT": _DEFAULT,
+        "_cache_get": _CACHE.get,
         "_validate": validate_value_using_validator,
         "_env_prefixes": env_prefixes,
         "_env_source": env_source or _default_env_source,
@@ -763,26 +757,36 @@ def _create_init(
             ]
 
         any_fields = [
-            f_name for f_name, f in fields.items() if f.kw_only is False or (f.kw_only is UNSET and not kw_only)
+            f
+            for f in sorted(
+                [f for f in fields.values() if f.kw_only is False or (f.kw_only is UNSET and not kw_only)],
+                key=lambda f: f.default is not _MISSING or f.default_factory is not _MISSING,
+            )
         ]
-        for f_name in any_fields:
-            args.append(f"{f_name}: t_{f_name} = _MISSING")
+        for f in any_fields:
+            if f.default is not _MISSING or f.default_factory is not _MISSING:
+                args.append(f"{f.name}: t_{f.name} = _DEFAULT")
+            else:
+                args.append(f"{f.name}: t_{f.name} = _MISSING")
 
-        kw_only_fields = [f_name for f_name, f in fields.items() if f.kw_only or (f.kw_only is UNSET and kw_only)]
+        kw_only_fields = [f for f in fields.values() if f.kw_only or (f.kw_only is UNSET and kw_only)]
         if kw_only_fields:
             args.append("*")
-        for f_name in kw_only_fields:
-            args.append(f"{f_name}: t_{f_name} = _MISSING")
+        for f in kw_only_fields:
+            if f.default is not _MISSING or f.default_factory is not _MISSING:
+                args.append(f"{f.name}: t_{f.name} = _DEFAULT")
+            else:
+                args.append(f"{f.name}: t_{f.name} = _MISSING")
 
-        for f_name in any_fields + kw_only_fields:
-            field = fields[f_name]
+        for field in any_fields + kw_only_fields:
+            f_name = field.name
             locals[f"f_{f_name}"] = field
             locals[f"t_{f_name}"] = field.type
             locals[f"d_{f_name}"] = field.default
             locals[f"df_{f_name}"] = field.default_factory
             if env_prefixes is not UNSET:
                 body += [
-                    f"{indent}if {f_name} is _MISSING:",
+                    f"{indent}if {f_name} is _MISSING or {f_name} is _DEFAULT:",
                     f"{indent}    if '{f_name}' in env_data:",
                     f"{indent}        {f_name} = env_data['{f_name}']",
                 ]
@@ -813,7 +817,7 @@ def _create_init(
                 ]
             else:
                 body += [
-                    f"{indent}if {f_name} is _MISSING:",
+                    f"{indent}if {f_name} is _MISSING or {f_name} is _DEFAULT:",
                 ]
                 if field.init_alias:
                     body += [
@@ -853,8 +857,10 @@ def _create_init(
                         f"{indent}if disable_validation is not True:",
                         f"{indent}    try:",
                         f"{indent}        _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
-                        f"{indent}    except (TypeError, ValueError, ValidationError) as e:",
-                        f"{indent}        raise ValidationError(..., __class__, [e], path=[f_{f_name}.name])",
+                        f"{indent}    except Exception as e:",
+                        f"{indent}        raise ValidationError(",
+                        f"{indent}            ..., __class__, [e], path=['{f_name}'], path_value={f_name}"
+                        f"{indent}        )",
                         f"{indent}else:",
                         f"{indent}    _{f_name} = {f_name}",
                     ]
@@ -862,8 +868,10 @@ def _create_init(
                     body += [
                         f"{indent}try:",
                         f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
-                        f"{indent}except (TypeError, ValueError, ValidationError) as e:",
-                        f"{indent}    raise ValidationError(..., __class__, [e], path=[f_{f_name}.name])",
+                        f"{indent}except Exception as e:",
+                        f"{indent}    raise ValidationError(",
+                        f"{indent}        ..., __class__, [e], path=['{f_name}'], path_value={f_name}",
+                        f"{indent}    )",
                     ]
             else:
                 body += [
@@ -987,6 +995,41 @@ def _create_eq(cls, fields):
     return __eq__
 
 
+def _sort_dataclass_fields(
+    fields: dict[str, Field],
+    base_fields: dict[str, Field],
+    kw_only: bool,
+) -> dict[str, Field]:
+    """
+    Model fields order:
+      - any_fields_base
+      - any_fields
+      - any_fields_base_with_defaults
+      - any_fields_with_defaults
+      - kw_only_fields_base
+      - kw_only_fields
+    """
+    any_fields = sorted(
+        filter(
+            lambda f: f.default is _MISSING and f.default_factory is _MISSING,
+            [f for f in fields.values() if f.kw_only is False or (f.kw_only is UNSET and not kw_only)],
+        ),
+        key=lambda f: f.name in base_fields,
+    )
+    any_fields_with_default = sorted(
+        filter(
+            lambda f: f.default is not _MISSING or f.default_factory is not _MISSING,
+            [f for f in fields.values() if f.kw_only is False or (f.kw_only is UNSET and not kw_only)],
+        ),
+        key=lambda f: f.name in base_fields,
+    )
+    kw_only_fields = sorted(
+        [f for f in fields.values() if f.kw_only or (f.kw_only is UNSET and kw_only)],
+        key=lambda f: f.name in base_fields,
+    )
+    return {f.name: f for f in chain(any_fields, any_fields_with_default, kw_only_fields)}
+
+
 def _build(
     cls,
     slots: bool,
@@ -1006,9 +1049,12 @@ def _build(
     __annotations__ = cls.__annotations__
     __dict__ = {k: v for k, v in cls.__dict__.items()}
 
+    for k, v in __dict__.items():
+        if isinstance(v, Field) and k not in __annotations__:
+            raise TypeError(f"{k} is a field but has no type annotation")
+
     defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
 
-    # copy?
     __dataclass_fields__ = getattr(cls, "__dataclass_fields__", {})
 
     for base in __bases__[::-1]:
@@ -1016,6 +1062,8 @@ def _build(
             __dataclass_fields__.update(
                 {k: v for k, v in base.__dataclass_fields__.items() if k not in __dataclass_fields__}
             )
+
+    base_fields = __dataclass_fields__
 
     for f_name, f_type in __annotations__.items():
         if _is_classvar(f_type):
@@ -1031,13 +1079,16 @@ def _build(
         f.type = f_type
         __dataclass_fields__[f_name] = f
 
+    __dataclass_fields__ = _sort_dataclass_fields(__dataclass_fields__, base_fields, kw_only)
+
     if not rebuild:
         if slots:
             if "__slots__" in __dict__:
                 raise TypeError(f"{cls.__name__} already specifies __slots__")
-            __dict__["__slots__"] = tuple(
-                [f_name if f.property is not True else f"_prop_{f_name}" for f_name, f in __dataclass_fields__.items()]
-            ) + ("__cwtch_fields_set__",)
+            __slots__ = tuple(
+                [f"_prop_{f_name}" if f.property is True else f_name for f_name, f in __dataclass_fields__.items()]
+            )
+            __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__",)
         __dict__.pop("__dict__", None)
         cls = type(cls.__name__, cls.__bases__, __dict__)
 
@@ -1225,29 +1276,14 @@ def _build_view(
     __annotations__ = view_cls.__annotations__
     __dict__ = {k: v for k, v in view_cls.__dict__.items()}
 
-    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
+    for k, v in __dict__.items():
+        if isinstance(v, Field) and k not in __annotations__:
+            raise TypeError(f"{k} is a field but has no type annotation")
 
-    __dataclass_fields__ = {k: _copy_field(v) for k, v in cls.__dataclass_fields__.items()}
-
-    if hasattr(view_cls, "__dataclass_fields__"):
-        __dataclass_fields__.update({k: _copy_field(v) for k, v in view_cls.__dataclass_fields__.items()})
+    if is_cwtch_view(cls):
+        __cwtch_params__ = cls.__cwtch_view_params__
     else:
-        for base in __bases__[::-1]:
-            if hasattr(base, "__dataclass_fields__"):
-                __dataclass_fields__.update({k: _copy_field(v) for k, v in base.__dataclass_fields__.items()})
-
-    for f_name, f_type in __annotations__.items():
-        if _is_classvar(f_type):
-            continue
-        f = defaults.get(f_name, _MISSING)
-        if not isinstance(f, Field):
-            f = Field(default=f)
-            f._field_type = _FIELD
-        f.name = f_name
-        f.type = f_type
-        __dataclass_fields__[f_name] = f
-
-    __cwtch_params__ = cls.__cwtch_params__
+        __cwtch_params__ = cls.__cwtch_params__
 
     __cwtch_view_params__ = {
         "slots": __cwtch_params__["slots"],
@@ -1265,6 +1301,7 @@ def _build_view(
 
     if hasattr(view_cls, "__cwtch_view_params__"):
         __cwtch_view_params__.update({k: v for k, v in view_cls.__cwtch_view_params__.items() if v != UNSET})
+
     if name is not UNSET:
         __cwtch_view_params__["name"] = name
     if attach is not UNSET:
@@ -1295,6 +1332,32 @@ def _build_view(
         __cwtch_view_params__["recursive"] = recursive
     if handle_circular_refs is not UNSET:
         __cwtch_view_params__["handle_circular_refs"] = handle_circular_refs
+
+    defaults = {k: __dict__.pop(k) for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
+
+    __dataclass_fields__ = {k: _copy_field(v) for k, v in cls.__dataclass_fields__.items()}
+
+    if hasattr(view_cls, "__dataclass_fields__"):
+        __dataclass_fields__.update({k: _copy_field(v) for k, v in view_cls.__dataclass_fields__.items()})
+    else:
+        for base in __bases__[::-1]:
+            if hasattr(base, "__dataclass_fields__"):
+                __dataclass_fields__.update({k: _copy_field(v) for k, v in base.__dataclass_fields__.items()})
+
+    base_fields = __dataclass_fields__
+
+    for f_name, f_type in __annotations__.items():
+        if _is_classvar(f_type):
+            continue
+        f = defaults.get(f_name, _MISSING)
+        if not isinstance(f, Field):
+            f = Field(default=f)
+            f._field_type = _FIELD
+        f.name = f_name
+        f.type = f_type
+        __dataclass_fields__[f_name] = f
+
+    __dataclass_fields__ = _sort_dataclass_fields(__dataclass_fields__, base_fields, __cwtch_view_params__["kw_only"])
 
     view_name = __cwtch_view_params__.get("name", view_cls.__name__)
 
@@ -1332,16 +1395,12 @@ def _build_view(
 
     if not rebuild:
         if __cwtch_view_params__["slots"]:
-            __slots__ = tuple(
-                [f_name if f.property is not None else f"_prop_{f_name}" for f_name, f in __dataclass_fields__.items()]
-            )
-
             if "__slots__" in __dict__:
-                __slots__ += tuple(x for x in __dict__["__slots__"] if x not in __slots__)
-            __dict__["__slots__"] = __slots__
-        else:
-            for f_name, f in __dataclass_fields__.items():
-                __dict__[f_name] = f
+                raise TypeError(f"{cls.__name__} already specifies __slots__")
+            __slots__ = tuple(
+                [f"_prop_{f_name}" if f.property is True else f_name for f_name, f in __dataclass_fields__.items()]
+            )
+            __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__",)
         __dict__.pop("__dict__", None)
         view_cls = type(view_cls.__name__, view_cls.__bases__, __dict__)
 
@@ -1400,7 +1459,7 @@ def _build_view(
     setattr(view_cls, "__cwtch_model__", True)
     setattr(view_cls, "__cwtch_view_name__", view_name)
     setattr(view_cls, "__cwtch_view__", True)
-    setattr(view_cls, "__cwtch_view_base__", cls)
+    setattr(view_cls, "__cwtch_view_base__", getattr(cls, "__cwtch_view_base__", cls))
     setattr(view_cls, "__cwtch_view_params__", __cwtch_view_params__)
     setattr(view_cls, "__dataclass_fields__", __dataclass_fields__)
 
@@ -1430,7 +1489,7 @@ def _build_view(
 
     setattr(view_cls, "cwtch_rebuild", classmethod(cwtch_rebuild))
 
-    if attach:
+    if attach or (attach is UNSET and ATTACH):
         setattr(cls, view_name, _ViewDesc(view_cls))
 
     return view_cls
@@ -1468,7 +1527,7 @@ def from_attributes(
     if exclude:
         kwds = {k: v for k, v in kwds.items() if k not in exclude}
 
-    cache = CACHE.get()
+    cache = _CACHE.get()
     cache["reset_circular_refs"] = reset_circular_refs
     try:
         return cls(__cwtch_cache_key=(cls, id(obj)), **kwds)

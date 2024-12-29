@@ -19,7 +19,7 @@ class ValidationError(Error):
         errors: list[Exception],
         *,
         path: list | None = None,
-        path_value: Any | None = None,
+        path_value: Any = None,
     ):
         self.value = value
         self.type = tp

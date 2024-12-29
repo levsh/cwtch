@@ -1,7 +1,10 @@
 import json
 
-from cwtch import asdict, dataclass
-from cwtch.types import SecretBytes, SecretStr, SecretUrl, Url
+import pytest
+
+from cwtch import asdict, dataclass, validate_value
+from cwtch.errors import ValidationError
+from cwtch.types import Email, SecretBytes, SecretStr, SecretUrl, Url
 
 
 def test_SecretBytes():
@@ -69,6 +72,22 @@ def test_SecretUrl():
     assert url.get_secret_value() == "http://user:pass@localhost:80/abc?x=y#z"
     assert hash(url) == hash(url.get_secret_value())
     assert len(url) == len(url.get_secret_value())
+
+
+def test_Email():
+    with pytest.raises(ValidationError):
+        validate_value("", Email)
+
+    validate_value("foo@example.com", Email)
+
+    @dataclass(repr=False)
+    class M:
+        email: Email
+
+    with pytest.raises(ValidationError):
+        M(email="")
+
+    M(email="foo@example.com").email
 
 
 def test_model():

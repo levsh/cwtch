@@ -3,7 +3,8 @@ import os
 from Cython.Build import cythonize
 from setuptools import Distribution, Extension
 
-cython_dir = os.path.join("ext")
+
+cython_dir = os.path.join("src")
 extension = Extension(
     "cwtch.core",
     [

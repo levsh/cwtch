@@ -8,7 +8,6 @@ from typing import Annotated, Any, Dict, List, Literal, Set, Tuple, Type, TypeVa
 import pytest
 
 from cwtch import validate_value
-from cwtch.cwtch import dataclass
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge
 from cwtch.types import UNSET, UnsetType
