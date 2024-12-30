@@ -11,6 +11,10 @@ from cwtch.metadata import Ge, MinItems, MinLen, Strict, ToLower, ToUpper, UrlCo
 
 
 __all__ = (
+    "AsDictKwds",
+    "UnsetType",
+    "Unset",
+    "UNSET",
     "Number",
     "Positive",
     "NonNegative",
@@ -26,7 +30,12 @@ __all__ = (
     "SecretBytes",
     "SecretStr",
     "Url",
+    "HttpUrl",
     "SecretUrl",
+    "SecretHttpUrl",
+    "WebsocketpUrl",
+    "FtpUrl",
+    "FileUrl",
 )
 
 
@@ -301,3 +310,5 @@ FtpUrl = Annotated[Url, UrlConstraints(shemes=["ftp"])]
 
 if getattr(metadata, "EmailValidator", None):
     Email = Annotated[str, metadata.EmailValidator()]
+
+    __all__ += ("Email",)
