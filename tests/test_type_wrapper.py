@@ -1,7 +1,7 @@
 import datetime
 
-from cwtch import TypeWrapper, dataclass, validate_value, view
-from cwtch.cwtch import view
+from cwtch import TypeWrapper, dataclass, dumps_json, validate_value, view
+from cwtch.core import make_json_schema
 
 
 def test_Typerapper():
@@ -9,6 +9,7 @@ def test_Typerapper():
 
     assert DateTime.utcnow()
     assert issubclass(datetime.datetime, DateTime)
+    assert make_json_schema(DateTime) == ({"type": "string", "format": "date-time"}, {})
 
 
 def test_validate_value():
@@ -25,6 +26,7 @@ def test_validate_value():
         assert isinstance(value, datetime.datetime)
         assert str(value) == "1970-01-01 00:00:00"
         assert value.__cwtch_asjson__() == "ABC"
+        assert dumps_json(value) == b'"ABC"'
 
     value = DateTime(datetime.datetime(1970, 1, 1))
     assert id(value) == id(validate_value(value, DateTime))
@@ -53,5 +55,6 @@ def test_str():
 
     s = "abc"
 
+    assert s == String(s)
     assert id(s) != id(String(s))
     assert id(s) == id(f"{String(s)}")

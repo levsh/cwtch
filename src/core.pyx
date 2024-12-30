@@ -1054,6 +1054,14 @@ def __():
             return default(T, ref_builder=ref_builder, context=context, default=default)
         raise Exception(f"missing json schema builder for {T}")
 
+    def make_json_schema_type_wrapper(T, ref_builder=None, context=None, default=None):
+        if builder := get_json_schema_builder(T._cwtch_T):
+            return builder(T, ref_builder=ref_builder, context=context, default=default)
+        if default:
+            return default(T, ref_builder=ref_builder, context=context, default=default)
+        raise Exception(f"missing json schema builder for {T}")
+
+
     def make_json_schema_type(T, ref_builder=None, context=None, default=None):
         origin = getattr(T, "__origin__", T)
         if hasattr(origin, "__cwtch_model__"):
@@ -1110,6 +1118,7 @@ def __():
     json_schema_builders_map[datetime.datetime] = make_json_schema_datetime
     json_schema_builders_map[datetime.date] = make_json_schema_date
     json_schema_builders_map[UUID] = make_json_schema_uuid
+    json_schema_builders_map[TypeWrapperMeta] = make_json_schema_type_wrapper
 
     @functools.cache
     def get_json_schema_builder(T, /):
