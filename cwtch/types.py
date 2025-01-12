@@ -43,21 +43,103 @@ T = TypeVar("T")
 
 
 Number = int | float
+"""
+Number type.
+Example:
+
+    i: Number = 1
+    f: Number = 1.1
+"""
 
 Positive = Annotated[T, Ge(1)]
+"""
+Positive type(Generic).
+Example:
+
+    i: Positive[int] = 1
+    n: Positive[Number] = 1.1
+"""
+
 NonNegative = Annotated[T, Ge(0)]
+"""
+Non negative type(Generict).
+Example:
+
+    i: NonNegative[int] = 0
+    n: NonNegative[Number] = 0.0
+"""
 
 NonEmpty = Annotated[T, MinItems(1)]
+"""
+Non empty container.
+Example:
+
+    l: NonEmpty[list] = [1]
+"""
+
 NonZeroLen = Annotated[T, MinLen(1)]
+"""
+Non zero length object.
+Example:
+
+    l: NonZeroLen[str] = "a"
+"""
 
 LowerStr = Annotated[str, ToLower()]
+"""
+Lower case string.
+Example:
+
+    s: LowerStr = "a"
+"""
+
 UpperStr = Annotated[str, ToUpper()]
+"""
+Upper case string.
+Example:
+
+    s: LowerStr = "A"
+"""
 
 StrictInt = Annotated[int, Strict(int)]
+"""
+Strict integer.
+Example:
+
+    i: StrictInt = 1
+"""
+
 StrictFloat = Annotated[float, Strict(float)]
+"""
+Strict float.
+Example:
+
+    f: StrictFloat = 1.1
+"""
+
 StrictNumber = StrictInt | StrictFloat
+"""
+Strict number.
+Example:
+
+    n: StrictNumber = 1.1
+"""
+
 StrictStr = Annotated[str, Strict(str)]
+"""
+Strict string.
+Example:
+
+    s: StrictString = "a"
+"""
+
 StrictBool = Annotated[bool, Strict(bool)]
+"""
+Strict bool.
+Example:
+
+    b: StrictBool = True
+"""
 
 
 class SecretBytes(bytes):
@@ -303,10 +385,29 @@ class SecretUrl(str, _UrlMixIn):
 
 
 HttpUrl = Annotated[Url, UrlConstraints(shemes=["http", "https"])]
+"""
+Type for HTTP URL.
+"""
+
 SecretHttpUrl = Annotated[SecretUrl, UrlConstraints(shemes=["http", "https"])]
+"""
+Type for secret HTTP URL.
+"""
+
 WebsocketpUrl = Annotated[Url, UrlConstraints(shemes=["ws", "wss"])]
+"""
+Type for websocket URL.
+"""
+
 FileUrl = Annotated[Url, UrlConstraints(shemes=["file"])]
+"""
+Type for file URL.
+"""
+
 FtpUrl = Annotated[Url, UrlConstraints(shemes=["ftp"])]
+"""
+Type for FTP URL.
+"""
 
 if getattr(metadata, "EmailValidator", None):
     Email = Annotated[str, metadata.EmailValidator()]

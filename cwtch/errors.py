@@ -66,6 +66,7 @@ class ValidationError(Error):
             show_value = SHOW_INPUT_VALUE_ON_ERROR
             sub_errors_show_value = show_value and len(self.errors) == 1
             show_value = show_value and (len(self.errors) > 1 or not isinstance(self.errors[0], ValidationError))
+
             errors = "\n".join(
                 [
                     indent(
@@ -96,3 +97,6 @@ class ValidationError(Error):
             return f"type[ {tp} ]{input_type}{path}{input_value}\n{errors}"
         except Exception as e:
             return f"cwtch internal error: {e}\noriginal errors: {self.errors}"
+
+    def __repr__(self):
+        return f"{self.__class__.__name__} {self}"

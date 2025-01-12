@@ -72,6 +72,11 @@ date_fromisoformat = datetime.date.fromisoformat
 datetime_fromisoformat = datetime.datetime.fromisoformat
 
 
+def nop(v: Any) -> Any:
+    """No-op function."""
+
+    return v
+
 class _MissingType:
     """Type to mark value as missing. Internal use only."""
 
@@ -141,9 +146,10 @@ class UnsetType:
         return {}
 
 
-UNSET = UnsetType()
-
 Unset = T | UnsetType
+
+
+UNSET = UnsetType()
 
 
 AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
@@ -186,6 +192,8 @@ class TypeWrapperMeta(type):
 
 
 class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
+    """Class to wrap any type for adding __cwtch_asdict__, __cwtch_asjson__ or __cwtch_json_schema__ methods."""
+
     def __init__(self, o):
         self._cwtch_o = o
 
@@ -799,6 +807,7 @@ def validate_annotated(value, T, /):
             value = metadata.before(value)
 
     __origin__ = T.__origin__
+
     value = get_validator(__origin__)(value, __origin__)
 
     for metadata in __metadata__:

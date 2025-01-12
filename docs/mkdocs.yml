@@ -26,7 +26,10 @@ markdown_extensions:
 
 plugins:
   - search
-  - mkdocstrings
+  - mkdocstrings:
+      handlers:
+        python:
+          load_external_modules: true
 
 extra_css:
   - css/extra.css

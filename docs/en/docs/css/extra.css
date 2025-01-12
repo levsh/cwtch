@@ -1,6 +1,6 @@
 .md-main__inner {
-    margin-left: 10px;
-    margin-right: 10px;
+    margin-left: 25px;
+    margin-right: 25px;
 }
 
 .md-grid {
@@ -14,4 +14,16 @@
 
 .md-typeset details {
     font-size: 0.75rem;
+}
+
+.md-typeset h4 {
+    font-size: 0.95rem;
+}
+
+.md-typeset .admonition {
+    font-size: 0.75rem;
+}
+
+.admonition-title {
+    font-size: 0.70rem;
 }

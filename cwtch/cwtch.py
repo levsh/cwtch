@@ -107,6 +107,8 @@ class Field:
         metadata: Unset[dict] = UNSET,
         kw_only: Unset[bool] = UNSET,
     ):
+        if default is not _MISSING and default_factory is not _MISSING:
+            raise ValueError("cannot specify both default and default_factory")
         self.name: str = cast(str, None)
         self.type: Any = cast(Any, None)
         self.default: Any = default
@@ -173,7 +175,7 @@ class Field:
 
 
 def field(
-    default=_MISSING,
+    default: Any = _MISSING,
     *,
     default_factory: _Missing[Callable] = _MISSING,
     init: bool = True,
@@ -185,6 +187,22 @@ def field(
     metadata: Unset[dict] = UNSET,
     kw_only: Unset[dict] = UNSET,
 ) -> Any:
+    """
+    Return an object to identify dataclass fields.
+
+    Args:
+        default: The default value of the field.
+        default_factory: A 0-argument function called to initialize a field's value.
+        init: If init is true, the field will be a parameter to the class's `__init__()` function.
+        repr: If repr is true, the field will be included in the object's repr().
+        compare: If compare is true, the field will be used in comparison functions.
+        property:
+        validate:
+        metadata: If specified, must be a mapping which is stored but not otherwise examined by dataclass.
+        kw_only: If kw_only true, the field will become a keyword-only parameter to `__init__()`.
+
+    It is an error to specify both default and default_factory.
+    """
     return Field(
         default=default,
         default_factory=default_factory,
@@ -221,18 +239,18 @@ def dataclass(
 ) -> Callable[[Type[T]], Type[T]]:
     """
     Args:
-        slots: If true, __slots__ attribute will be generated
+        slots: If true, `__slots__` attribute will be generated
             and new class will be returned instead of the original one.
-            If __slots__ is already defined in the class, then TypeError is raised.
+            If `__slots__` is already defined in the class, then TypeError is raised.
         kw_only: If kw_only is true, then by default all fields are keyword-only.
         env_prefix: Prefix(or list of prefixes) for environment variables.
-        env_source: Environment variables source factory.
+        env_source: Environment variables source factory. By default os.environ.
         validate: Validate or not fields.
-        add_disable_validation_to_init: Add `disable_validation` keywoard argument to __init__ method
+        add_disable_validation_to_init: Add disable_validation keywoard argument to `__init__()` method
             to disable validation.
         extra: Ignore or forbid extra arguments passed to init.
-        repr: If true, a __rich_repr__ method will be generated and rich.repr.auto decorator applied to the class.
-        eq: If true, an __eq__ method will be generated.
+        repr: If true, a `__rich_repr__()` method will be generated and rich.repr.auto decorator applied to the class.
+        eq: If true, an `__eq__()` method will be generated.
             This method compares the class as if it were a tuple of its fields, in order.
             Both instances in the comparison must be of the identical type.
         recursive: ...
@@ -304,7 +322,7 @@ def dataclass(
 @dataclass_transform(field_specifiers=(field,))
 def view(
     base_cls,
-    name=UNSET,
+    name: Unset[str] = UNSET,
     *,
     attach: Unset[bool] = UNSET,
     include: Unset[Sequence[str]] = UNSET,
@@ -327,9 +345,9 @@ def view(
         attach: If true, view will be attached to base cls.
         include: List of fields to include in view.
         exclude: List of fields to exclude from view.
-        slots: If true, __slots__ attribute will be generated
+        slots: If true, `__slots__` attribute will be generated
             and new class will be returned instead of the original one.
-            If __slots__ is already defined in the class, then TypeError is raised.
+            If `__slots__` is already defined in the class, then TypeError is raised.
             If UNSET value from base view model will be used.
         kw_only: If kw_only is true, then by default all fields are keyword-only.
         env_prefix: Prefix(or list of prefixes) for environment variables.
@@ -338,14 +356,14 @@ def view(
             If UNSET value from base view model will be used.
         validate: Validate or not fields.
             If UNSET value from base view model will be used.
-        add_disable_validation_to_init: Add `disable_validation` keywoard argument to __init__ method
+        add_disable_validation_to_init: Add disable_validation keywoard argument to `__init__()` method
             to disable validation.
             If UNSET value from base view model will be used.
         extra: Ignore or forbid extra arguments passed to init.
             If UNSET value from base view model will be used.
-        repr: If true, a __rich_repr__ method will be generated and rich.repr.auto decorator applied to the class.
+        repr: If true, a `__rich_repr__()` method will be generated and rich.repr.auto decorator applied to the class.
             If UNSET value from base view model will be used.
-        eq: If true, an __eq__ method will be generated.
+        eq: If true, an `__eq__()` method will be generated.
             This method compares the class as if it were a tuple of its fields, in order.
             Both instances in the comparison must be of the identical type.
             If UNSET value from base view model will be used.
@@ -1512,7 +1530,7 @@ def _build_view(
 
 def from_attributes(
     cls,
-    obj,
+    obj: Any,
     data: dict | None = None,
     exclude: Sequence | None = None,
     suffix: str | None = None,
@@ -1558,7 +1576,17 @@ def asdict(
     exclude_unset: bool | None = None,
     context: dict | None = None,
 ) -> dict:
-    """Return `cwtch` model as dict."""
+    """
+    Return cwtch model as dict.
+
+    Args:
+        inst: cwtch model.
+        include: List of field names to include.
+        exclude: List of field names to exclude.
+        exclude_none: If true, fields with None value will be excluded.
+        exclude_unset: If true, unset fields will be excluded.
+        context: If specified, must be a mapping.
+    """
 
     return _asdict(
         inst,
@@ -1574,7 +1602,13 @@ def asdict(
 
 
 def dumps_json(inst, encoder: Callable[[Any], Any] | None = None, context: dict | None = None):
-    """Dump `cwtch` model to json."""
+    """
+    Dump cwtch model to json.
+
+    Args:
+        encoder: Custom JSON encoder as callable.
+        context: If specified, must be a mapping.
+    """
 
     return _dumps_json(inst, encoder, context)
 
