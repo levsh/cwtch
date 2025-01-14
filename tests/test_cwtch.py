@@ -1212,7 +1212,7 @@ class TestJsonSchema:
 
 
 def test_validate_call():
-    def foo(s: str, i: int = None):
+    def foo(s: str, i: int | None = None):
         pass
 
     assert validate_args(foo, ("a", 1), {}) == (("a", 1), {})
