@@ -518,6 +518,17 @@ class TestModel:
         ):
             M(i=0, s="s")
 
+    def test_extra_allow(self):
+        @dataclass(extra="allow")
+        class M:
+            i: int
+
+        m = M(i="1", s="a")
+        assert m.i == 1
+        assert m.s == "a"
+        assert m.__cwtch_extra_fields__ == ("s",)
+        assert m.__cwtch_fields_set__ == ("i", "s")
+
     def test_env(self):
         @dataclass(env_prefix="TEST_")
         class M:
@@ -587,6 +598,8 @@ class TestModel:
         assert B.__bases__ == (A,)
         assert B.__mro__ == (B, A, object)
 
+        assert tuple(A.__dataclass_fields__.keys()) == ("i",)
+        assert tuple(B.__dataclass_fields__.keys()) == ("i", "s")
         assert B.__dataclass_fields__["i"].type == float
         assert B.__dataclass_fields__["s"].type == str
 
@@ -670,8 +683,8 @@ class TestModel:
             s: str
             b: bool = True
 
-        assert D.__slots__ == ("i", "s", "b", "__cwtch_fields_set__")
-        assert D(i="1", s="1").__slots__ == ("i", "s", "b", "__cwtch_fields_set__")
+        assert D.__slots__ == ("i", "s", "b", "__cwtch_fields_set__", "__cwtch_extra_fields__")
+        assert D(i="1", s="1").__slots__ == ("i", "s", "b", "__cwtch_fields_set__", "__cwtch_extra_fields__")
         assert D(i="1", s="1").i == 1
         assert D(i="1", s="1").s == "1"
 

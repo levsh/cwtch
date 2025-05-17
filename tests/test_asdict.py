@@ -52,6 +52,14 @@ def test_show_secrets():
     assert cwtch.asdict(M(s="abc"), context={"show_secrets": True})["s"] == "abc"
 
 
+def test_exclude_extra_allow():
+    @cwtch.dataclass(extra="allow")
+    class M:
+        i: int
+
+    assert cwtch.asdict(M(i=1, s="s")) == {"i": 1, "s": "s"}
+
+
 def test_custom_asdict():
     @cwtch.dataclass
     class M:

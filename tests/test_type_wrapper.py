@@ -33,7 +33,9 @@ def test_validate_value():
 
 
 def test_model():
-    class DateTime(TypeWrapper[datetime.datetime]): ...
+    class DateTime(TypeWrapper[datetime.datetime]):
+        def __cwtch_asjson__(self, **kwds):
+            return "ABC"
 
     @dataclass
     class M:
@@ -48,6 +50,8 @@ def test_model():
 
     v = m.V()
     assert type(v.dt) == datetime.datetime
+
+    assert dumps_json(M("1970-01-01")) == b'{"dt":"ABC"}'
 
 
 def test_str():
