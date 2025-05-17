@@ -13,6 +13,8 @@ from collections import namedtuple
 from collections.abc import Mapping
 from contextvars import ContextVar
 from enum import Enum, EnumType
+from inspect import _ParameterKind, signature
+from itertools import chain
 from types import WrapperDescriptorType
 from typing import (
     Any,
@@ -76,6 +78,7 @@ def nop(v: Any) -> Any:
     """No-op function."""
 
     return v
+
 
 class _MissingType:
     """Type to mark value as missing. Internal use only."""
@@ -155,9 +158,34 @@ UNSET = UnsetType()
 AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
 
 
+def _check_cwtch_asjson_signature(fn):
+    sig = signature(fn)
+    if len(sig.parameters) < 2:
+        raise TypeError("invalid signature for __cwtch_asjson__ method")
+    it = iter(sig.parameters.values())
+    p = next(it)
+    if p.kind not in (_ParameterKind.POSITIONAL_ONLY, _ParameterKind.POSITIONAL_OR_KEYWORD):
+        raise TypeError("invalid signature for __cwtch_asjson__ method")
+    p = next(it)
+    if p.kind == _ParameterKind.POSITIONAL_OR_KEYWORD:
+        if p.name != "context":
+            raise TypeError("invalid signature for __cwtch_asjson__ method")
+    elif p.kind != _ParameterKind.VAR_KEYWORD:
+        raise TypeError("invalid signature for __cwtch_asjson__ method")
+    try:
+        p = next(it)
+    except StopIteration:
+        return
+    if p.kind != _ParameterKind.VAR_KEYWORD:
+        raise TypeError("invalid signature for __cwtch_asjson__ method")
+
+
 class TypeWrapperMeta(type):
     def __new__(cls, name, bases, ns):
         ns["_cwtch_T"] = ns["__orig_bases__"][0].__args__[0]
+
+        if "__cwtch_asjson__" in ns:
+            _check_cwtch_asjson_signature(ns["__cwtch_asjson__"])
 
         class Desc:
             __slots__ = ("k", "v")
@@ -166,7 +194,7 @@ class TypeWrapperMeta(type):
                 self.k = k
                 self.v = v
 
-            def __get__(self, instance, owner):
+            def __get__(self, instance, owner=None):
                 if instance is not None:
                     o = getattr(instance, "_cwtch_o", None)
                     return getattr(o, self.k)
@@ -233,7 +261,7 @@ def asdict_handler(inst, kwds):
 
     data = {}
 
-    for k in fields:
+    for k in chain(fields, inst.__cwtch_extra_fields__):
         v = getattr(inst, k, None)
         if kwds.exclude_unset and v is UNSET:
             continue
@@ -274,6 +302,8 @@ def asdict_root_handler(inst, kwds):
             keys = inst
         else:
             raise Exception(f"expect cwtch model or dict")
+    else:
+        keys = chain(keys, inst.__cwtch_extra_fields__)
 
     use_inc_cond: cython.int = 0
     use_exc_cond: cython.int = 0
@@ -1076,7 +1106,6 @@ def __():
         if default:
             return default(T, ref_builder=ref_builder, context=context, default=default)
         raise Exception(f"missing json schema builder for {T}")
-
 
     def make_json_schema_type(T, ref_builder=None, context=None, default=None):
         origin = getattr(T, "__origin__", T)
