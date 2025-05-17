@@ -1073,7 +1073,7 @@ def _build(
 
     defaults = {k: __dict__[k] for k, v in __annotations__.items() if k in __dict__ and not _is_classvar(v)}
 
-    __dataclass_fields__ = getattr(cls, "__dataclass_fields__", {})
+    __dataclass_fields__ = getattr(cls, "__dataclass_fields__", {}).copy()
 
     for base in __bases__[::-1]:
         if hasattr(base, "__dataclass_fields__"):
