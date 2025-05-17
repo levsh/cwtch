@@ -728,7 +728,10 @@ def _create_init(
     if fields:
         args.append("/")
 
-    body = ["__cwtch_fields_set__ = ()"]
+    body = [
+        "__cwtch_fields_set__ = ()",
+        "__cwtch_extra_fields__ = ()",
+    ]
 
     if env_prefixes is not UNSET:
         body += [
@@ -905,18 +908,24 @@ def _create_init(
                     f"{indent}__cwtch_self__.{f_name} = _{f_name}",
                 ]
 
-        body += [
-            f"{indent}__cwtch_self__.__cwtch_fields_set__ = __cwtch_fields_set__",
-        ]
-
         if handle_circular_refs:
             body += [
                 "finally:",
                 "    _cache_get().pop(__cwtch_cache_key, None)",
             ]
 
-    else:
-        body = ["pass"]
+    if extra == "allow":
+        body += [
+            f"__cwtch_extra_fields__ = tuple(__extra_kwds.keys())",
+            f"for k, v in __extra_kwds.items():",
+            f"    setattr(__cwtch_self__, k, v)",
+            f"    __cwtch_fields_set__ += (k,)",
+        ]
+
+    body += [
+        f"__cwtch_self__.__cwtch_fields_set__ = __cwtch_fields_set__",
+        f"__cwtch_self__.__cwtch_extra_fields__ = __cwtch_extra_fields__",
+    ]
 
     if handle_circular_refs:
         args.append("__cwtch_cache_key=None")
@@ -1112,7 +1121,7 @@ def _build(
             __slots__ = tuple(
                 [f"_prop_{f_name}" if f.property is True else f_name for f_name, f in __dataclass_fields__.items()]
             )
-            __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__",)
+            __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__", "__cwtch_extra_fields__")
         __dict__.pop("__dict__", None)
         cls = type(cls.__name__, cls.__bases__, __dict__)
 
@@ -1430,7 +1439,7 @@ def _build_view(
             __slots__ = tuple(
                 [f"_prop_{f_name}" if f.property is True else f_name for f_name, f in __dataclass_fields__.items()]
             )
-            __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__",)
+            __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__", "__cwtch_extra_fields__")
         __dict__.pop("__dict__", None)
         view_cls = type(view_cls.__name__, view_cls.__bases__, __dict__)
 
