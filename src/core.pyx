@@ -168,14 +168,15 @@ class TypeWrapperMeta(type):
 
             def __get__(self, instance, owner):
                 if instance is not None:
-                    return getattr(instance._cwtch_o, self.k)
+                    o = getattr(instance, "_cwtch_o", None)
+                    return getattr(o, self.k)
                 return self.v
 
         ns.update(
             {
                 k: Desc(k, v)
                 for k, v in getattr(ns["_cwtch_T"], "__dict__", {}).items()
-                if type(v) == WrapperDescriptorType and k != "__getattribute__"
+                if type(v) == WrapperDescriptorType and k not in ["__getattribute__", "__init__"]
             }
         )
 
@@ -195,7 +196,7 @@ class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
     """Class to wrap any type for adding __cwtch_asdict__, __cwtch_asjson__ or __cwtch_json_schema__ methods."""
 
     def __init__(self, o):
-        self._cwtch_o = o
+        object.__setattr__(self, "_cwtch_o", o)
 
     def __getattribute__(self, name):
         object_getattribute = object.__getattribute__
@@ -204,6 +205,12 @@ class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
         if name in object_getattribute(self, "__dict__"):
             return object_getattribute(self, name)
         return getattr(object_getattribute(self, "_cwtch_o"), name)
+
+    def __eq__(self, other):
+        return object.__getattribute__(self, "_cwtch_o") == other
+
+    def __ne__(self, other):
+        return object.__getattribute__(self, "_cwtch_o") != other
 
 
 class TypeMetadata:
