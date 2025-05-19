@@ -202,9 +202,9 @@ class TypeWrapperMeta(type):
 
         ns.update(
             {
-                k: Desc(k, v)
+                k: Desc(k, getattr(ns["_cwtch_T"], k, v))
                 for k, v in getattr(ns["_cwtch_T"], "__dict__", {}).items()
-                if type(v) == WrapperDescriptorType and k not in ["__getattribute__", "__init__"]
+                if type(v) == WrapperDescriptorType and k not in ["__new__", "__init__", "__getattribute__"]
             }
         )
 
@@ -228,17 +228,20 @@ class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
 
     def __getattribute__(self, name):
         object_getattribute = object.__getattribute__
-        if name in object_getattribute(self, "__class__").__dict__:
-            return object_getattribute(self, name)
         if name in object_getattribute(self, "__dict__"):
+            return object_getattribute(self, name)
+        if name in object_getattribute(self, "__class__").__dict__:
             return object_getattribute(self, name)
         return getattr(object_getattribute(self, "_cwtch_o"), name)
 
-    def __eq__(self, other):
-        return object.__getattribute__(self, "_cwtch_o") == other
+    def __call__(self, *args, **kwds):
+        return object.__getattribute__(self, "_cwtch_o")(*args, **kwds)
 
-    def __ne__(self, other):
-        return object.__getattribute__(self, "_cwtch_o") != other
+    def __eq__(self, *args, **kwds):
+        return object.__getattribute__(self, "_cwtch_o").__eq__(*args, **kwds)
+
+    def __ne__(self, *args, **kwds):
+        return object.__getattribute__(self, "_cwtch_o").__ne__(*args, **kwds)
 
 
 class TypeMetadata:

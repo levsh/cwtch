@@ -1,10 +1,14 @@
 import datetime
 
-from cwtch import TypeWrapper, dataclass, dumps_json, validate_value, view
+from typing import Callable
+
+import pytest
+
+from cwtch import TypeWrapper, ValidationError, dataclass, dumps_json, validate_value, view
 from cwtch.core import make_json_schema
 
 
-def test_Typerapper():
+def test_TypeWrapper():
     class DateTime(TypeWrapper[datetime.datetime]): ...
 
     assert DateTime.utcnow()
@@ -62,3 +66,22 @@ def test_str():
     assert s == String(s)
     assert id(s) != id(String(s))
     assert id(s) == id(f"{String(s)}")
+
+
+def test_callable():
+    class T(TypeWrapper[Callable]):
+        def __cwtch_asjson__(self, **kwds):
+            return "ABC"
+
+    @dataclass
+    class M:
+        t: T
+
+    M(t=lambda x: x)
+
+    assert dumps_json(M(t=lambda x: x)) == b'{"t":"ABC"}'
+
+    with pytest.raises(ValidationError):
+        M(t=1)
+
+    M(t=lambda x: x).t("t") == "t"
