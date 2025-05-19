@@ -669,6 +669,24 @@ class TestModel:
         assert b.x == 1
         assert b.s == "s"
 
+    def test_post_validate(self):
+        @dataclass
+        class A:
+            x: int
+            s: Optional[str] = None
+
+            def __post_validate__(self):
+                if self.x == 0:
+                    raise ValueError
+
+        @dataclass
+        class B(A):
+            pass
+
+        B(x=1)
+        with pytest.raises(ValidationError):
+            B(x=0)
+
     def test_default_factory(self):
         @dataclass
         class M:

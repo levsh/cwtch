@@ -948,6 +948,19 @@ def _create_init(
         "        )",
     ]
 
+    if getattr(cls, "__post_validate__", None):
+        body += [
+            "try:",
+            "    __cwtch_self__.__post_validate__()",
+            "except ValueError as e:",
+            "    raise ValidationError(",
+            "        __cwtch_self__,",
+            "        __class__,",
+            "        [e],",
+            "        path=[f'{__class__.__name__}.__post_validate__']",
+            "    )",
+        ]
+
     __init__ = _create_fn(cls, "__init__", args, body, globals=globals, locals=locals)
 
     __init__.__module__ = cls.__module__
