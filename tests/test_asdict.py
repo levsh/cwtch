@@ -72,7 +72,6 @@ def test_custom_asdict():
 
 
 def test_complex():
-
     @cwtch.dataclass
     class MM:
         i: int
@@ -100,3 +99,13 @@ def test_complex():
         "tm": ({"i": 1},),
         "dm": {"k": {"i": 3}},
     }
+
+
+def test_asdict_alias():
+    @cwtch.dataclass
+    class M:
+        in_: str = cwtch.field(init_alias="in", asdict_alias="in")
+
+    m = M(**{"in": "a"})
+    assert m.in_ == "a"
+    assert cwtch.asdict(m) == {"in": "a"}

@@ -270,23 +270,27 @@ def asdict_handler(inst, kwds):
             continue
         if kwds.exclude_none and v is None:
             continue
+        k_ = k
+        if k in fields:
+            if fields[k].asdict_alias is not UNSET:
+                k_ = fields[k].asdict_alias
         if isinstance(v, list):
-            data[k] = [x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v]
+            data[k_] = [x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v]
         elif isinstance(v, dict):
-            data[k] = {
+            data[k_] = {
                 kk: vv if isinstance(vv, (int, str, float, bool)) else _asdict_handler(vv, kwds) for kk, vv in v.items()
             }
         elif isinstance(v, tuple):
-            data[k] = tuple([x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v])
+            data[k_] = tuple([x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v])
         elif isinstance(v, set):
-            data[k] = {x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v}
+            data[k_] = {x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds) for x in v}
         else:
             v = _asdict_handler(v, kwds)
             if kwds.exclude_unset and v is UNSET:
                 continue
             if kwds.exclude_none and v is None:
                 continue
-            data[k] = v
+            data[k_] = v
 
     return data
 
@@ -300,12 +304,15 @@ def _asdict_handler(inst, kwds):
 
 @cython.cfunc
 def asdict_root_handler(inst, kwds):
+    is_cwtch_model: cython.int = 0
+
     if (keys := getattr(inst, "__dataclass_fields__", None)) is None:
         if isinstance(inst, dict):
             keys = inst
         else:
             raise Exception(f"expect cwtch model or dict")
     else:
+        is_cwtch_model = 1
         keys = chain(keys, inst.__cwtch_extra_fields__)
 
     use_inc_cond: cython.int = 0
@@ -321,6 +328,7 @@ def asdict_root_handler(inst, kwds):
     data = {}
 
     for k in keys:
+        k_ = k
         if use_inc_cond and not k in kwds[0]:
             continue
         if use_exc_cond and k in kwds[1]:
@@ -330,24 +338,29 @@ def asdict_root_handler(inst, kwds):
             continue
         if kwds.exclude_none and v is None:
             continue
+        if is_cwtch_model:
+            if k in inst.__dataclass_fields__:
+                f = inst.__dataclass_fields__[k]
+                if f.asdict_alias is not UNSET:
+                    k_ = f.asdict_alias
         if isinstance(v, list):
-            data[k] = [x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v]
+            data[k_] = [x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v]
         elif isinstance(v, dict):
-            data[k] = {
+            data[k_] = {
                 kk: vv if isinstance(vv, (int, str, float, bool)) else _asdict_handler(vv, kwds_)
                 for kk, vv in v.items()
             }
         elif isinstance(v, tuple):
-            data[k] = tuple([x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v])
+            data[k_] = tuple([x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v])
         elif isinstance(v, set):
-            data[k] = {x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v}
+            data[k_] = {x if isinstance(x, (int, str, float, bool)) else _asdict_handler(x, kwds_) for x in v}
         else:
             v = _asdict_handler(v, kwds_)
             if kwds.exclude_unset and v is UNSET:
                 continue
             if kwds.exclude_none and v is None:
                 continue
-            data[k] = v
+            data[k_] = v
 
     return data
 

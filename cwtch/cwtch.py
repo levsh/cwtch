@@ -84,6 +84,7 @@ class Field:
         "default_factory",
         "init",
         "init_alias",
+        "asdict_alias",
         "repr",
         "compare",
         "property",
@@ -100,6 +101,7 @@ class Field:
         default_factory: _Missing[Callable] = _MISSING,
         init: bool = True,
         init_alias: Unset[str] = UNSET,
+        asdict_alias: Unset[str] = UNSET,
         repr: Unset[Literal[False]] = UNSET,
         compare: Unset[bool] = UNSET,
         property: Unset[Literal[True]] = UNSET,
@@ -115,6 +117,7 @@ class Field:
         self.default_factory = default_factory
         self.init = init
         self.init_alias = init_alias
+        self.asdict_alias = asdict_alias
         self.repr = repr
         self.compare = compare
         self.property = property
@@ -130,6 +133,7 @@ class Field:
         yield "default_factory", self.default_factory, False
         yield "init", self.init
         yield "init_alias", self.init_alias
+        yield "asdict_alias", self.asdict_alias
         yield "repr", self.repr
         yield "compare", self.compare
         yield "property", self.property
@@ -147,6 +151,7 @@ class Field:
             self.default_factory,
             self.init,
             self.init_alias,
+            self.asdict_alias,
             self.repr,
             self.compare,
             self.property,
@@ -161,6 +166,7 @@ class Field:
             other.default_factory,
             other.init,
             other.init_alias,
+            other.asdict_alias,
             other.repr,
             other.compare,
             other.property,
@@ -180,6 +186,7 @@ def field(
     default_factory: _Missing[Callable] = _MISSING,
     init: bool = True,
     init_alias: Unset[str] = UNSET,
+    asdict_alias: Unset[str] = UNSET,
     repr: Unset[Literal[False]] = UNSET,
     compare: Unset[bool] = UNSET,
     property: Unset[Literal[True]] = UNSET,
@@ -194,6 +201,8 @@ def field(
         default: The default value of the field.
         default_factory: A 0-argument function called to initialize a field's value.
         init: If init is true, the field will be a parameter to the class's `__init__()` function.
+        init_alias: ...
+        asdict_alias: ...
         repr: If repr is true, the field will be included in the object's repr().
         compare: If compare is true, the field will be used in comparison functions.
         property:
@@ -208,6 +217,7 @@ def field(
         default_factory=default_factory,
         init=init,
         init_alias=init_alias,
+        asdict_alias=asdict_alias,
         repr=repr,
         compare=compare,
         property=property,
@@ -657,6 +667,7 @@ def _copy_field(f: Field) -> Field:
         default_factory=f.default_factory,
         init=f.init,
         init_alias=f.init_alias,
+        asdict_alias=f.asdict_alias,
         repr=f.repr,
         compare=f.compare,
         property=f.property,
@@ -916,15 +927,15 @@ def _create_init(
 
     if extra == "allow":
         body += [
-            f"__cwtch_extra_fields__ = tuple(__extra_kwds.keys())",
-            f"for k, v in __extra_kwds.items():",
-            f"    setattr(__cwtch_self__, k, v)",
-            f"    __cwtch_fields_set__ += (k,)",
+            "__cwtch_extra_fields__ = tuple(__extra_kwds.keys())",
+            "for k, v in __extra_kwds.items():",
+            "    setattr(__cwtch_self__, k, v)",
+            "    __cwtch_fields_set__ += (k,)",
         ]
 
     body += [
-        f"__cwtch_self__.__cwtch_fields_set__ = __cwtch_fields_set__",
-        f"__cwtch_self__.__cwtch_extra_fields__ = __cwtch_extra_fields__",
+        "__cwtch_self__.__cwtch_fields_set__ = __cwtch_fields_set__",
+        "__cwtch_self__.__cwtch_extra_fields__ = __cwtch_extra_fields__",
     ]
 
     if handle_circular_refs:

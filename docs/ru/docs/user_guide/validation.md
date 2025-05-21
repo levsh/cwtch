@@ -51,7 +51,7 @@ D(i="a", s="1")
 
 ### Пост валидация
 
-Для валидации модели после создания можно использовать `__post_init__` метод.
+Для валидации модели после создания можно использовать `__post_validate__` метод.
 
 !!! note
     **cwtch** перхватывает `ValueError` и `TypeError` исключения и оборачивает их в `ValidationError`.
@@ -62,7 +62,7 @@ class D:
     i: int
     j: int
 
-    def __post_init__(self):
+    def __post_validate__(self):
         if self.i + self.j < 10:
             raise ValueError("sum of i and j should be >= 10")
 ```
@@ -70,7 +70,7 @@ class D:
 
 ### Валидация на основе метадаты
 
-Для валидации поля перед или после **cwtch** можно исплоьзовать валидаторы на основе `cwtch.metadata.TypeMetadata`.
+Для валидации поля перед или после **cwtch** можно использовать валидаторы на основе `cwtch.metadata.TypeMetadata`.
 
 ```python
 from cwtch.metadata import TypeMetadata
@@ -115,10 +115,11 @@ D(i=1.0)
 from typing import Annotated
 from cwtch import dataclass
 from cwtch.metadata import Ge, Gt, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
+from cwtch.types import Positive, Strict
 
 @dataclass
 class D:
-    i: Annotated[int, Ge(1)]
+    i: Annotated[Strict[Positive[int]], Ge(1)]
     items: Annotated[list[int], MinItems(1)]
 ```
 

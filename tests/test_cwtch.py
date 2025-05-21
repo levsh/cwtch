@@ -12,7 +12,7 @@ from cwtch import asdict, dataclass, field, make_json_schema, validate_args, val
 from cwtch.core import _MISSING
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
-from cwtch.types import UNSET, LowerStr, StrictBool, StrictFloat, StrictInt, StrictNumber, StrictStr, Unset, UpperStr
+from cwtch.types import UNSET, LowerStr, Number, Strict, Unset, UpperStr
 
 
 T = TypeVar("T")
@@ -254,7 +254,7 @@ class TestMetadata:
         assert validate_value("1", UpperStr) == "1"
 
     def test_strict_int(self):
-        assert validate_value(1, StrictInt) == 1
+        assert validate_value(1, Strict[int]) == 1
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -264,7 +264,7 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value("1", StrictInt)
+            validate_value("1", Strict[int])
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -274,10 +274,10 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(True, StrictInt)
+            validate_value(True, Strict[int])
 
     def test_strict_float(self):
-        assert validate_value(1.1, StrictFloat) == 1.1
+        assert validate_value(1.1, Strict[float]) == 1.1
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -287,7 +287,7 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(1, StrictFloat)
+            validate_value(1, Strict[float])
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -297,11 +297,11 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(True, StrictFloat)
+            validate_value(True, Strict[float])
 
     def test_strict_number(self):
-        assert validate_value(1, StrictNumber) == 1
-        assert validate_value(1.1, StrictNumber) == 1.1
+        assert validate_value(1, Strict[Number]) == 1
+        assert validate_value(1.1, Strict[Number]) == 1.1
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -315,7 +315,7 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value("1", StrictNumber)
+            validate_value("1", Strict[Number])
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -329,10 +329,10 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(True, StrictNumber)
+            validate_value(True, Strict[Number])
 
     def test_strict_str(self):
-        assert validate_value("a", StrictStr) == "a"
+        assert validate_value("a", Strict[str]) == "a"
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -342,7 +342,7 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(1, StrictStr)
+            validate_value(1, Strict[str])
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -352,11 +352,11 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(True, StrictStr)
+            validate_value(True, Strict[str])
 
     def test_strict_bool(self):
-        assert validate_value(True, StrictBool) is True
-        assert validate_value(False, StrictBool) is False
+        assert validate_value(True, Strict[bool]) is True
+        assert validate_value(False, Strict[bool]) is False
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -366,7 +366,7 @@ class TestMetadata:
                 )
             ),
         ):
-            validate_value(1, StrictBool)
+            validate_value(1, Strict[bool])
 
 
 class TestModel:

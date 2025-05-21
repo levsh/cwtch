@@ -1,8 +1,8 @@
 import datetime
 
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from cwtch import dataclass, dumps_json
+from cwtch import asdict, dataclass, dumps_json, field
 from cwtch.types import SecretStr, SecretUrl, Url
 
 
@@ -73,6 +73,14 @@ class TestDumps:
             dumps_json(m)
             == b'{"id":"7f799175-bdcf-4d61-95b8-238746c0017f","date":"1970-01-01","datetime":"1970-01-01T00:00:00","time":"00:00:00"}'
         )
+
+    def test_asdict_alias(self):
+        @dataclass
+        class M:
+            in_: str = field(init_alias="in", asdict_alias="in")
+
+        assert dumps_json(M(**{"in": "a"})) == b'{"in_":"a"}'
+        assert dumps_json(asdict(M(**{"in": "a"}))) == b'{"in":"a"}'
 
     def test_cwtch_asjson(self):
         class CustomUUID(UUID):

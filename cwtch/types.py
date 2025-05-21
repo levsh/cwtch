@@ -1,13 +1,17 @@
 import re
+import types
+import typing
 
 from functools import lru_cache
 from ipaddress import ip_address
-from typing import Annotated, TypeVar
+from typing import Annotated, Generic, TypeVar, Union
 from urllib.parse import urlparse
 
 from cwtch import metadata
 from cwtch.core import UNSET, AsDictKwds, Unset, UnsetType  # noqa
-from cwtch.metadata import Ge, MinItems, MinLen, Strict, ToLower, ToUpper, UrlConstraints
+from cwtch.metadata import Ge, MinItems, MinLen
+from cwtch.metadata import Strict as StrictMetadata
+from cwtch.metadata import ToLower, ToUpper, UrlConstraints
 
 
 __all__ = (
@@ -22,11 +26,7 @@ __all__ = (
     "NonZeroLen",
     "LowerStr",
     "UpperStr",
-    "StrictInt",
-    "StrictFloat",
-    "StrictNumber",
-    "StrictStr",
-    "StrictBool",
+    "Strict",
     "SecretBytes",
     "SecretStr",
     "Url",
@@ -101,45 +101,22 @@ Example:
     s: LowerStr = "A"
 """
 
-StrictInt = Annotated[int, Strict(int)]
-"""
-Strict integer.
-Example:
 
-    i: StrictInt = 1
-"""
+class Strict(Generic[T]):
+    """
+    Example:
 
-StrictFloat = Annotated[float, Strict(float)]
-"""
-Strict float.
-Example:
+        b: Strict[bool] = True
+    """
 
-    f: StrictFloat = 1.1
-"""
-
-StrictNumber = StrictInt | StrictFloat
-"""
-Strict number.
-Example:
-
-    n: StrictNumber = 1.1
-"""
-
-StrictStr = Annotated[str, Strict(str)]
-"""
-Strict string.
-Example:
-
-    s: StrictString = "a"
-"""
-
-StrictBool = Annotated[bool, Strict(bool)]
-"""
-Strict bool.
-Example:
-
-    b: StrictBool = True
-"""
+    def __class_getitem__(cls, tp):
+        if __args__ := getattr(tp, "__args__", None):
+            if tp.__class__ == typing._AnnotatedAlias:
+                return Annotated[tp, StrictMetadata(__args__[0])]
+            if tp.__class__ in [types.UnionType, typing._UnionGenericAlias]:  # type: ignore
+                return Union[*[Annotated[arg, StrictMetadata(arg)] for arg in __args__]]
+            raise ValueError(f"{tp} is unsupported by {cls}")
+        return Annotated[tp, StrictMetadata(tp)]
 
 
 class SecretBytes(bytes):
