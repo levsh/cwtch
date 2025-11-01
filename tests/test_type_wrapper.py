@@ -53,6 +53,7 @@ def test_model():
     assert type(m.dt) == DateTime
 
     v = m.V()
+
     assert type(v.dt) == datetime.datetime
 
     assert dumps_json(M("1970-01-01")) == b'{"dt":"ABC"}'

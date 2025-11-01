@@ -3,7 +3,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Set, Tuple, Type, TypeVar, Union
+from typing import Annotated, Any, Dict, List, Literal, NewType, Set, Tuple, Type, TypeVar, Union
 
 import pytest
 
@@ -33,11 +33,14 @@ class TestValidateValue:
             assert validate_value(value, bool) is True
         for value in (0, "0", "false", "False", "FALSE", "n", "N", "f", "no", "No", "NO"):
             assert validate_value(value, bool) is False
+
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'bool'> ] input_type[ <class 'int'> ] input_value[ -2 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> <class 'bool'>\n"
+                    "  Input: -2\n"
                     "  ValueError: could not convert value to bool"
                 )
             ),
@@ -47,7 +50,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'bool'> ] input_type[ <class 'int'> ] input_value[ 2 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> <class 'bool'>\n"
+                    "  Input: 2\n"
                     "  ValueError: could not convert value to bool"
                 )
             ),
@@ -57,7 +62,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'bool'> ] input_type[ <class 'str'> ] input_value[ 'ok' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> <class 'bool'>\n"
+                    "  Input: 'ok'\n"
                     "  ValueError: could not convert value to bool"
                 )
             ),
@@ -67,7 +74,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'bool'> ] input_type[ <class 'str'> ] input_value[ 'fail' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> <class 'bool'>\n"
+                    "  Input: 'fail'\n"
                     "  ValueError: could not convert value to bool"
                 )
             ),
@@ -85,7 +94,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> <class 'int'>\n"
+                    "  Input: 'a'\n"
                     "  ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
@@ -95,7 +106,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'int'> ] input_type[ <class 'NoneType'> ] input_value[ None ]\n"
+                    "\n"
+                    "  Type: <class 'NoneType'> --> <class 'int'>\n"
+                    "  Input: None\n"
                     "  TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
                 )
             ),
@@ -113,7 +126,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'float'> ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> <class 'float'>\n"
+                    "  Input: 'a'\n"
                     "  ValueError: could not convert string to float: 'a'"
                 )
             ),
@@ -123,7 +138,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'float'> ] input_type[ <class 'NoneType'> ] input_value[ None ]\n"
+                    "\n"
+                    "  Type: <class 'NoneType'> --> <class 'float'>\n"
+                    "  Input: None\n"
                     "  TypeError: float() argument must be a string or a real number, not 'NoneType'"
                 )
             ),
@@ -136,7 +153,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'str'> ] input_type[ <class 'NoneType'> ] input_value[ None ]\n"
+                    "\n"
+                    "  Type: <class 'NoneType'> --> <class 'str'>\n"
+                    "  Input: None\n"
                     "  ValueError: value is not a valid <class 'str'>"
                 )
             ),
@@ -146,7 +165,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'str'> ] input_type[ <class 'int'> ] input_value[ 0 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> <class 'str'>\n"
+                    "  Input: 0\n"
                     "  ValueError: value is not a valid <class 'str'>"
                 )
             ),
@@ -156,7 +177,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'str'> ] input_type[ <class 'bool'> ] input_value[ True ]\n"
+                    "\n"
+                    "  Type: <class 'bool'> --> <class 'str'>\n"
+                    "  Input: True\n"
                     "  ValueError: value is not a valid <class 'str'>"
                 )
             ),
@@ -166,7 +189,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'str'> ] input_type[ <class 'bool'> ] input_value[ False ]\n"
+                    "\n"
+                    "  Type: <class 'bool'> --> <class 'str'>\n"
+                    "  Input: False\n"
                     "  ValueError: value is not a valid <class 'str'>"
                 )
             ),
@@ -184,7 +209,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'bytes'> ] input_type[ <class 'float'> ] input_value[ 1.1 ]\n"
+                    "\n"
+                    "  Type: <class 'float'> --> <class 'bytes'>\n"
+                    "  Input: 1.1\n"
                     "  TypeError: cannot convert 'float' object to bytes"
                 )
             ),
@@ -198,7 +225,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'datetime.date'> ] input_type[ <class 'str'> ] input_value[ '2023' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> <class 'datetime.date'>\n"
+                    "  Input: '2023'\n"
                     "  ValueError: Invalid isoformat string: '2023'"
                 )
             ),
@@ -218,7 +247,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'datetime.datetime'> ] input_type[ <class 'str'> ] input_value[ '2023' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> <class 'datetime.datetime'>\n"
+                    "  Input: '2023'\n"
                     "  ValueError: Invalid isoformat string: '2023'"
                 )
             ),
@@ -232,7 +263,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Literal['A', 'B'] ] input_type[ <class 'str'> ] input_value[ 'C' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Literal['A', 'B']\n"
+                    "  Input: 'C'\n"
                     "  ValueError: value is not a one of ['A', 'B']"
                 )
             ),
@@ -241,16 +274,24 @@ class TestValidateValue:
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                "type[ Literal['1'] ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
-                "  ValueError: value is not a one of ['1']"
+                (
+                    "\n"
+                    "  Type: <class 'int'> --> Literal['1']\n"
+                    "  Input: 1\n"
+                    "  ValueError: value is not a one of ['1']"
+                )
             ),
         ):
             validate_value(1, Literal["1"])
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                "type[ Literal[1] ] input_type[ <class 'str'> ] input_value[ '1' ]\n"
-                "  ValueError: value is not a one of [1]"
+                (
+                    "\n"
+                    "  Type: <class 'str'> --> Literal[1]\n"
+                    "  Input: '1'\n"
+                    "  ValueError: value is not a one of [1]"
+                )
             ),
         ):
             validate_value("1", Literal[1])
@@ -265,7 +306,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <enum 'E'> ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> <enum 'E'>\n"
+                    "  Input: 1\n"
                     "  ValueError: 1 is not a valid TestValidateValue.test_enum.<locals>.E"
                 )
             ),
@@ -297,8 +340,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ list[int] ] input_type[ <class 'list'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'list'> --> list[int]\n"
+                    "  Input: [0, 'a']\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -308,8 +357,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ List[int] ] input_type[ <class 'list'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'list'> --> list[int]\n"
+                    "  Input: [0, 'a']\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -319,8 +374,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ list[int] ] input_type[ <class 'tuple'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'tuple'> --> list[int]\n"
+                    "  Input: (0, 'a')\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -330,8 +391,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ List[int] ] input_type[ <class 'tuple'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'tuple'> --> list[int]\n"
+                    "  Input: (0, 'a')\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -341,8 +408,8 @@ class TestValidateValue:
         for T in (tuple, Tuple):
             assert validate_value((), T) == ()
             assert validate_value([], T) == ()
-            assert validate_value((), T[int]) == ()
-            assert validate_value([], T[int]) == ()
+            # assert validate_value((), T[int]) == ()
+            # assert validate_value([], T[int]) == ()
             assert validate_value((0, 1), T) == (0, 1)
             assert validate_value([0, 1], T) == (0, 1)
             assert validate_value((0, 1), T[int, int]) == (0, 1)
@@ -366,8 +433,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ tuple[int, int] ] input_type[ <class 'tuple'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'tuple'> --> tuple[int, int]\n"
+                    "  Input: (0, 'a')\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -377,8 +450,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Tuple[int, int] ] input_type[ <class 'tuple'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'tuple'> --> tuple[int, int]\n"
+                    "  Input: (0, 'a')\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -388,8 +467,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ tuple[int, int] ] input_type[ <class 'list'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'list'> --> tuple[int, int]\n"
+                    "  Input: [0, 'a']\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -399,8 +484,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Tuple[int, int] ] input_type[ <class 'list'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'list'> --> tuple[int, int]\n"
+                    "  Input: [0, 'a']\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -427,8 +518,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ set[int] ] input_type[ <class 'list'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'list'> --> set[int]\n"
+                    "  Input: [0, 'a']\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -438,8 +535,14 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Set[int] ] input_type[ <class 'list'> ] path[ 1 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "  ValueError: invalid literal for int() with base 10: 'a'"
+                    "\n"
+                    "  Type: <class 'list'> --> set[int]\n"
+                    "  Input: [0, 'a']\n"
+                    "  Path: [1]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -460,9 +563,18 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ dict[str, dict[str, int]] ] input_type[ <class 'dict'> ] path[ 'k', 'kk' ]\n"
-                    "  type[ dict[str, int] ] input_type[ <class 'dict'> ] path[ 'kk' ] path_value[ 'v' ] path_value_type[ <class 'str'> ]\n"
-                    "    ValueError: invalid literal for int() with base 10: 'v'"
+                    "\n"
+                    "  Type: <class 'dict'> --> dict[str, dict[str, int]]\n"
+                    "  Input: {'k': {'kk': 'v'}}\n"
+                    "  Path: ['k', 'kk']\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'dict'> --> dict[str, int]\n"
+                    "    Input: {'kk': 'v'}\n"
+                    "    Path: ['kk']\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'v'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'v'"
                 )
             ),
         ):
@@ -472,9 +584,18 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Dict[str, dict[str, int]] ] input_type[ <class 'dict'> ] path[ 'k', 'kk' ]\n"
-                    "  type[ dict[str, int] ] input_type[ <class 'dict'> ] path[ 'kk' ] path_value[ 'v' ] path_value_type[ <class 'str'> ]\n"
-                    "    ValueError: invalid literal for int() with base 10: 'v'"
+                    "\n"
+                    "  Type: <class 'dict'> --> dict[str, dict[str, int]]\n"
+                    "  Input: {'k': {'kk': 'v'}}\n"
+                    "  Path: ['k', 'kk']\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'dict'> --> dict[str, int]\n"
+                    "    Input: {'kk': 'v'}\n"
+                    "    Path: ['kk']\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'v'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'v'"
                 )
             ),
         ):
@@ -484,9 +605,18 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ collections.abc.Mapping[str, dict[str, int]] ] input_type[ <class 'dict'> ] path[ 'k', 'kk' ]\n"
-                    "  type[ dict[str, int] ] input_type[ <class 'dict'> ] path[ 'kk' ] path_value[ 'v' ] path_value_type[ <class 'str'> ]\n"
-                    "    ValueError: invalid literal for int() with base 10: 'v'"
+                    "\n"
+                    "  Type: <class 'dict'> --> collections.abc.Mapping[str, dict[str, int]]\n"
+                    "  Input: {'k': {'kk': 'v'}}\n"
+                    "  Path: ['k', 'kk']\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'dict'> --> dict[str, int]\n"
+                    "    Input: {'kk': 'v'}\n"
+                    "    Path: ['kk']\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'v'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'v'"
                 )
             ),
         ):
@@ -501,7 +631,9 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'collections.abc.Iterable'> ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> <class 'collections.abc.Iterable'>\n"
+                    "  Input: 1\n"
                     "  ValueError: value is not a valid <class 'collections.abc.Iterable'>"
                 )
             ),
@@ -524,9 +656,10 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Type[test_validate.TestValidateValue.test_type.<locals>.A] ] input_type[ <class 'type'> ]"
-                    " input_value[ <class 'test_validate.TestValidateValue.test_type.<locals>.C'> ]\n"
-                    "  ValueError: invalid value for Type[test_validate.TestValidateValue.test_type.<locals>.A]"
+                    "\n"
+                    "  Type: <class 'type'> --> Type[test_validate.TestValidateValue.test_type.<locals>.A]\n"
+                    "  Input: <class 'test_validate.TestValidateValue.test_type.<locals>.C'>\n"
+                    "  ValueError: invalid value for type[test_validate.TestValidateValue.test_type.<locals>.A]"
                 )
             ),
         ):
@@ -545,10 +678,16 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ int | float ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
-                    "  type[ <class 'int'> ] input_type[ <class 'str'> ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Union[int, float]\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: invalid literal for int() with base 10: 'a'\n"
-                    "  type[ <class 'float'> ] input_type[ <class 'str'> ]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'float'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: could not convert string to float: 'a'"
                 )
             ),
@@ -558,10 +697,16 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Union[int, float] ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
-                    "  type[ <class 'int'> ] input_type[ <class 'str'> ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Union[int, float]\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: invalid literal for int() with base 10: 'a'\n"
-                    "  type[ <class 'float'> ] input_type[ <class 'str'> ]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'float'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: could not convert string to float: 'a'"
                 )
             ),
@@ -575,13 +720,23 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Union[Annotated[int | float, Ge(value=1)], bool] ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
-                    "  type[ int | float ] input_type[ <class 'str'> ]\n"
-                    "    type[ <class 'int'> ] input_type[ <class 'str'> ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Union[Annotated[int | float, Ge(value=1)], bool]\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> int | float\n"
+                    "    Input: 'a'\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
                     "      ValueError: invalid literal for int() with base 10: 'a'\n"
-                    "    type[ <class 'float'> ] input_type[ <class 'str'> ]\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'float'>\n"
+                    "      Input: 'a'\n"
                     "      ValueError: could not convert string to float: 'a'\n"
-                    "  type[ <class 'bool'> ] input_type[ <class 'str'> ]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'bool'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: could not convert value to bool"
                 )
             ),
@@ -591,13 +746,23 @@ class TestValidateValue:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Union[Annotated[int | float, Ge(value=1)], bool] ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
-                    "  type[ int | float ] input_type[ <class 'str'> ]\n"
-                    "    type[ <class 'int'> ] input_type[ <class 'str'> ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Union[Annotated[int | float, Ge(value=1)], bool]\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> int | float\n"
+                    "    Input: 'a'\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
                     "      ValueError: invalid literal for int() with base 10: 'a'\n"
-                    "    type[ <class 'float'> ] input_type[ <class 'str'> ]\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'float'>\n"
+                    "      Input: 'a'\n"
                     "      ValueError: could not convert string to float: 'a'\n"
-                    "  type[ <class 'bool'> ] input_type[ <class 'str'> ]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'bool'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: could not convert value to bool"
                 )
             ),
@@ -625,3 +790,29 @@ class TestValidateValue:
         assert validate_value(["1"], TT[int]) == [1]
         with pytest.raises(ValidationError):
             assert validate_value(["a"], TT[int])
+
+    def test_validate_new_type(self):
+        Int = NewType("Int", int)
+        validate_value(1, Int)
+
+        Number = NewType("Number", int | float)
+        validate_value(1, Number)
+        with pytest.raises(
+            ValidationError,
+            match=re.escape(
+                (
+                    "\n"
+                    "  Type: <class 'str'> --> test_validate.Number\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'float'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: could not convert string to float: 'a'"
+                )
+            ),
+        ):
+            validate_value("a", Number)

@@ -1,9 +1,14 @@
+# cython: language_level=3
+# cython: profile=False
+# distutils: language=c
+
 import re
 import types
 import typing
 
-from typing import Any, Literal, Type, TypeVar
+from typing import Any, Literal, NewType, Type, TypeVar
 
+import cython
 import orjson
 
 
@@ -12,8 +17,8 @@ try:
 except ImportError:
     emval = None
 
-from cwtch import dataclass, field
-from cwtch.core import TypeMetadata, nop
+from cwtch import core, dataclass, field
+from cwtch.core import TypeMetadata, ValidatorAfter, ValidatorBefore
 
 
 __all__ = (
@@ -41,8 +46,8 @@ T = TypeVar("T")
 
 @typing.final
 @dataclass(slots=True)
-class Validator(TypeMetadata):
-    """Validator object.
+class Validator(ValidatorBefore, ValidatorAfter):
+    """Validator class.
 
     Attributes:
         json_schema: Additional custom JSON schema.
@@ -50,16 +55,22 @@ class Validator(TypeMetadata):
         after: Validator to validate value after base validation.
     """
 
-    json_schema: dict = field(default_factory=dict, repr=False)  # type: ignore
-    before: typing.Callable = field(default=nop, kw_only=True)
-    after: typing.Callable = field(default=nop, kw_only=True)
+    json_schema: dict = field(default_factory=dict, kw_only=True, repr=False)  # type: ignore
+    before: typing.Callable = field(default=core.nop, kw_only=True)
+    after: typing.Callable = field(default=core.nop, kw_only=True)
+
+    __annotations__ = {
+        "json_schema": dict,
+        "before": typing.Callable,
+        "after": typing.Callable,
+    }
 
     def __init_subclass__(cls, **kwds):
         raise TypeError("Validator class cannot be inherited")
 
 
 @dataclass(slots=True)
-class Ge(TypeMetadata):
+class Ge(core._Ge):
     """
     Validator to check that the input data is greater than or equal to the specified value.
 
@@ -70,17 +81,14 @@ class Ge(TypeMetadata):
 
     value: Any
 
+    __annotations__ = {"value": Any}
+
     def json_schema(self) -> dict:
         return {"minimum": self.value}
 
-    def after(self, value, /):
-        if value < self.value:
-            raise ValueError(f"value should be >= {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class Gt(TypeMetadata):
+class Gt(core._Gt):
     """
     Validator to check if input is greater than specified value.
 
@@ -91,17 +99,14 @@ class Gt(TypeMetadata):
 
     value: Any
 
+    __annotations__ = {"value": Any}
+
     def json_schema(self) -> dict:
         return {"minimum": self.value, "exclusiveMinimum": True}
 
-    def after(self, value, /):
-        if value <= self.value:
-            raise ValueError(f"value should be > {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class Le(TypeMetadata):
+class Le(core._Le):
     """
     Validator to check that the input data is less than or equal to the specified value.
 
@@ -112,17 +117,14 @@ class Le(TypeMetadata):
 
     value: Any
 
+    __annotations__ = {"value": Any}
+
     def json_schema(self) -> dict:
         return {"maximum": self.value}
 
-    def after(self, value, /):
-        if value > self.value:
-            raise ValueError(f"value should be <= {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class Lt(TypeMetadata):
+class Lt(core._Lt):
     """
     Validator to check if input is less than specified value.
 
@@ -133,17 +135,14 @@ class Lt(TypeMetadata):
 
     value: Any
 
+    __annotations__ = {"value": Any}
+
     def json_schema(self) -> dict:
         return {"maximum": self.value, "exclusiveMaximum": True}
 
-    def after(self, value, /):
-        if value >= self.value:
-            raise ValueError(f"value should be < {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class MinLen(TypeMetadata):
+class MinLen(core._MinLen):
     """
     Validator to check that the length of the input data is greater than or equal to the specified value.
 
@@ -154,17 +153,14 @@ class MinLen(TypeMetadata):
 
     value: int
 
+    __annotations__ = {"value": int}
+
     def json_schema(self) -> dict:
         return {"minLength": self.value}
 
-    def after(self, value, /):
-        if len(value) < self.value:
-            raise ValueError(f"value length should be >= {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class MaxLen(TypeMetadata):
+class MaxLen(core._MaxLen):
     """
     Validator to check that the length of the input data is less than or equal to the specified value.
 
@@ -175,17 +171,14 @@ class MaxLen(TypeMetadata):
 
     value: int
 
+    __annotations__ = {"value": int}
+
     def json_schema(self) -> dict:
         return {"maxLength": self.value}
 
-    def after(self, value, /):
-        if len(value) > self.value:
-            raise ValueError(f"value length should be <= {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class Len(TypeMetadata):
+class Len(core._Len):
     """
     Validator to check that the input length is within the specified range.
 
@@ -197,19 +190,14 @@ class Len(TypeMetadata):
     min_value: int
     max_value: int
 
+    __annotations__ = {"min_value": int, "max_value": int}
+
     def json_schema(self) -> dict:
         return {"minLength": self.min_value, "maxLength": self.max_value}
 
-    def after(self, value, /):
-        if len(value) < self.min_value:
-            raise ValueError(f"value length should be >= {self.min_value}")
-        if len(value) > self.max_value:
-            raise ValueError(f"value length should be  {self.max_value}")
-        return value
-
 
 @dataclass(slots=True)
-class MinItems(TypeMetadata):
+class MinItems(core._MinItems):
     """
     Validator to check that the number of elements in the input is greater than or equal to the specified value.
 
@@ -220,17 +208,14 @@ class MinItems(TypeMetadata):
 
     value: int
 
+    __annotations__ = {"value": int}
+
     def json_schema(self) -> dict:
         return {"minItems": self.value}
 
-    def after(self, value, /):
-        if len(value) < self.value:
-            raise ValueError(f"items count should be >= {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class MaxItems(TypeMetadata):
+class MaxItems(core._MaxItems):
     """
     Validator to check that the number of elements in the input is less than or equal to the specified value.
 
@@ -241,17 +226,14 @@ class MaxItems(TypeMetadata):
 
     value: int
 
+    __annotations__ = {"value": int}
+
     def json_schema(self) -> dict:
         return {"maxItems": self.value}
 
-    def after(self, value, /):
-        if len(value) > self.value:
-            raise ValueError(f"items count should be <= {self.value}")
-        return value
-
 
 @dataclass(slots=True)
-class Match(TypeMetadata):
+class Match(ValidatorAfter):
     """
     Validator to check that an input value matches a regular expression.
 
@@ -262,17 +244,55 @@ class Match(TypeMetadata):
 
     pattern: re.Pattern
 
+    __annotations__ = {"pattern": re.Pattern}
+
     def json_schema(self) -> dict:
         return {"pattern": self.pattern.pattern}
 
     def after(self, value: str, /):
-        if not self.pattern.match(value):
-            raise ValueError(f"value doesn't match pattern {self.pattern}")
-        return value
+        if self.pattern.match(value):
+            return value
+        raise ValueError(f"value doesn't match pattern {self.pattern}")
 
 
 @dataclass(slots=True)
-class UrlConstraints(TypeMetadata):
+class ToLower(core._ToLowerA, core._ToLowerB):
+    """
+    Convert input to lower case.
+
+    Attributes:
+        mode: Validation mode, before or after base validation. Default: after.
+
+    Example:
+
+        Annotated[str, ToLower()]
+    """
+
+    mode: Literal["before", "after"] = "after"
+
+    __annotations__ = {"mode": Literal["before", "after"]}
+
+
+@dataclass(slots=True)
+class ToUpper(core._ToUpperA, core._ToUpperB):
+    """
+    Convert input to upper case.
+
+    Attributes:
+        mode: Validation mode, before or after base validation. Default: after.
+
+    Example:
+
+        Annotated[str, ToUpper()]
+    """
+
+    mode: Literal["before", "after"] = "after"
+
+    __annotations__ = {"mode": Literal["before", "after"]}
+
+
+@dataclass(slots=True)
+class UrlConstraints(ValidatorAfter):
     """
     URL constraints.
 
@@ -289,6 +309,8 @@ class UrlConstraints(TypeMetadata):
     schemes: list[str] | None = field(default=None, kw_only=True)
     ports: list[int] | None = field(default=None, kw_only=True)
 
+    __annotations__ = {"schemes": list[str] | None, "ports": list[int] | None}
+
     def after(self, value, /):
         if self.schemes is not None and value.scheme not in self.schemes:
             raise ValueError(f"URL scheme should be one of {self.schemes}")
@@ -301,7 +323,7 @@ class UrlConstraints(TypeMetadata):
 
 
 @dataclass(slots=True, repr=False)
-class JsonLoads(TypeMetadata):
+class JsonLoads(ValidatorBefore):
     """
     Validator to try load value from json.
 
@@ -318,59 +340,7 @@ class JsonLoads(TypeMetadata):
 
 
 @dataclass(slots=True)
-class ToLower(TypeMetadata):
-    """
-    Convert input to lower case.
-
-    Attributes:
-        mode: Validation mode, before or after base validation. Default: after.
-
-    Example:
-
-        Annotated[str, ToLower()]
-    """
-
-    mode: Literal["before", "after"] = "after"
-
-    def before(self, value, /):
-        if self.mode == "before":
-            return value.lower()
-        return value
-
-    def after(self, value, /):
-        if self.mode == "after":
-            return value.lower()
-        return value
-
-
-@dataclass(slots=True)
-class ToUpper(TypeMetadata):
-    """
-    Convert input to upper case.
-
-    Attributes:
-        mode: Validation mode, before or after base validation. Default: after.
-
-    Example:
-
-        Annotated[str, ToUpper()]
-    """
-
-    mode: Literal["before", "after"] = "after"
-
-    def before(self, value, /):
-        if self.mode == "before":
-            return value.upper()
-        return value
-
-    def after(self, value, /):
-        if self.mode == "after":
-            return value.upper()
-        return value
-
-
-@dataclass(slots=True)
-class Strict(TypeMetadata):
+class Strict(ValidatorBefore):
     """
     Validator to strict input type.
 
@@ -379,7 +349,9 @@ class Strict(TypeMetadata):
         Annotated[int, Strict(int)]
     """
 
-    type: Type
+    type: Type | NewType
+
+    __annotations__ = {"type": Type | NewType}
 
     def __post_init__(self):
         def fn(tp):
@@ -408,7 +380,7 @@ class Strict(TypeMetadata):
 if emval:
 
     @dataclass(slots=True)
-    class EmailValidator(TypeMetadata):
+    class EmailValidator(ValidatorAfter):
         """Email address validator."""
 
         validator: emval.EmailValidator = field(
@@ -420,6 +392,8 @@ if emval:
                 deliverable_address=False,
             )
         )
+
+        __annotations__ = {"validator": emval.EmailValidator}
 
         def json_schema(self) -> dict:
             return {"format": "email"}

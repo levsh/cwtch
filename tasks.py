@@ -8,7 +8,7 @@ CWD = os.path.abspath(os.path.dirname(__file__))
 
 
 @task
-def linters(c):
+def run_linters(c):
     """Run linters"""
 
     cmd = "poetry run ruff check cwtch"
@@ -16,7 +16,7 @@ def linters(c):
 
 
 @task
-def tests(c):
+def run_tests(c):
     """Run tests"""
 
     cmd = (

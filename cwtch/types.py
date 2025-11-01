@@ -4,8 +4,8 @@ import typing
 
 from functools import lru_cache
 from ipaddress import ip_address
-from typing import Annotated, Generic, TypeVar, Union
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, Annotated, Generic, Optional, TypeVar, Union
+from urllib.parse import ParseResult, urlparse
 
 from cwtch import metadata
 from cwtch.core import UNSET, AsDictKwds, Unset, UnsetType  # noqa
@@ -62,7 +62,7 @@ Example:
 
 NonNegative = Annotated[T, Ge(0)]
 """
-Non negative type(Generict).
+Non negative type(Generic).
 Example:
 
     i: NonNegative[int] = 0
@@ -122,7 +122,20 @@ class Strict(Generic[T]):
 class SecretBytes(bytes):
     """Type to represent secret bytes."""
 
+    __cwtch_type_config__ = {"strict_validation": False}
+
+    if TYPE_CHECKING:
+        _value: bytes
+
     def __new__(cls, value):
+        try:
+            if not isinstance(value, bytes):
+                if isinstance(value, str) and not cls.__cwtch_type_config__["strict_validation"]:
+                    value = value.encode()
+                else:
+                    raise ValueError(f"value is not a valid {bytes}")
+        except Exception:
+            raise ValueError(f"value is not a valid {bytes}")
         obj = super().__new__(cls, b"***")
         obj._value = value
         return obj
@@ -146,10 +159,6 @@ class SecretBytes(bytes):
     def __len__(self):
         return len(self._value)
 
-    # @classmethod
-    # def __cwtch_json_schema__(cls, **kwds) -> dict:
-    #     return {"type": "string"}
-
     def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
         if (kwds.context or {}).get("show_secrets"):
             return self.get_secret_value()
@@ -164,7 +173,20 @@ class SecretStr(str):
 
     __slots__ = ("_value",)
 
+    __cwtch_type_config__ = {"strict_validation": False}
+
+    if TYPE_CHECKING:
+        _value: str
+
     def __new__(cls, value):
+        try:
+            if not isinstance(value, str):
+                if not cls.__cwtch_type_config__["strict_validation"]:
+                    value = super().__new__(str, value)
+                else:
+                    raise ValueError(f"value is not a valid {str}")
+        except Exception:
+            raise ValueError(f"value is not a valid {str}")
         obj = super().__new__(cls, "***")
         obj._value = value
         return obj
@@ -220,37 +242,40 @@ def _validate_hostname(hostname: str):
 
 
 class _UrlMixIn:
-    @property
-    def scheme(self) -> str | None:
-        return self._parsed.scheme  # type: ignore
+    if TYPE_CHECKING:
+        _parsed: ParseResult
 
     @property
-    def username(self) -> str | None:
-        return self._parsed.username  # type: ignore
+    def scheme(self) -> Optional[str]:
+        return self._parsed.scheme
 
     @property
-    def password(self) -> str | None:
-        return self._parsed.password  # type: ignore
+    def username(self) -> Optional[str]:
+        return self._parsed.username
 
     @property
-    def hostname(self) -> str:
-        return self._parsed.hostname  # type: ignore
+    def password(self) -> Optional[str]:
+        return self._parsed.password
 
     @property
-    def port(self) -> int | None:
-        return self._parsed.port  # type: ignore
+    def hostname(self) -> Optional[str]:
+        return self._parsed.hostname
 
     @property
-    def path(self) -> str | None:
-        return self._parsed.path  # type: ignore
+    def port(self) -> Optional[int]:
+        return self._parsed.port
 
     @property
-    def query(self) -> str | None:
-        return self._parsed.query  # type: ignore
+    def path(self) -> Optional[str]:
+        return self._parsed.path
 
     @property
-    def fragment(self) -> str | None:
-        return self._parsed.fragment  # type: ignore
+    def query(self) -> Optional[str]:
+        return self._parsed.query
+
+    @property
+    def fragment(self) -> Optional[str]:
+        return self._parsed.fragment
 
 
 class Url(str, _UrlMixIn):
@@ -259,6 +284,11 @@ class Url(str, _UrlMixIn):
     __slots__ = ("_parsed",)
 
     def __new__(cls, value):
+        try:
+            if not isinstance(value, str):
+                raise ValueError(f"value is not a valid {str}")
+        except Exception:
+            raise ValueError(f"value is not a valid {str}")
         try:
             parsed = urlparse(value)
         except Exception as e:
@@ -287,6 +317,11 @@ class SecretUrl(str, _UrlMixIn):
     __slots__ = ("_parsed", "_value")
 
     def __new__(cls, value):
+        try:
+            if not isinstance(value, str):
+                raise ValueError(f"value is not a valid {str}")
+        except Exception:
+            raise ValueError(f"value is not a valid {str}")
         try:
             parsed = urlparse(value)
         except Exception as e:
@@ -336,11 +371,11 @@ class SecretUrl(str, _UrlMixIn):
         return len(self._value)
 
     @property
-    def username(self):
+    def username(self) -> Optional[str]:
         return "***" if self._parsed.username else None
 
     @property
-    def password(self):
+    def password(self) -> Optional[str]:
         return "***" if self._parsed.password else None
 
     @classmethod
@@ -361,27 +396,27 @@ class SecretUrl(str, _UrlMixIn):
         return self._value
 
 
-HttpUrl = Annotated[Url, UrlConstraints(shemes=["http", "https"])]
+HttpUrl = Annotated[Url, UrlConstraints(schemes=["http", "https"])]
 """
 Type for HTTP URL.
 """
 
-SecretHttpUrl = Annotated[SecretUrl, UrlConstraints(shemes=["http", "https"])]
+SecretHttpUrl = Annotated[SecretUrl, UrlConstraints(schemes=["http", "https"])]
 """
 Type for secret HTTP URL.
 """
 
-WebsocketpUrl = Annotated[Url, UrlConstraints(shemes=["ws", "wss"])]
+WebsocketpUrl = Annotated[Url, UrlConstraints(schemes=["ws", "wss"])]
 """
 Type for websocket URL.
 """
 
-FileUrl = Annotated[Url, UrlConstraints(shemes=["file"])]
+FileUrl = Annotated[Url, UrlConstraints(schemes=["file"])]
 """
 Type for file URL.
 """
 
-FtpUrl = Annotated[Url, UrlConstraints(shemes=["ftp"])]
+FtpUrl = Annotated[Url, UrlConstraints(schemes=["ftp"])]
 """
 Type for FTP URL.
 """

@@ -5,14 +5,25 @@ from setuptools import Distribution, Extension
 
 
 cython_dir = os.path.join("src")
-extension = Extension(
-    "cwtch.core",
-    [
-        os.path.join(cython_dir, "core.pyx"),
-    ],
-)
+extensions = [
+    Extension(
+        "cwtch.core",
+        [
+            os.path.join(cython_dir, "core.pyx"),
+        ],
+    ),
+    Extension(
+        "cwtch.metadata",
+        [
+            os.path.join(cython_dir, "metadata.pyx"),
+        ],
+    ),
+]
 
-ext_modules = cythonize([extension], include_path=[cython_dir])
+ext_modules = cythonize(
+    extensions,
+    include_path=[".", cython_dir],
+)
 dist = Distribution({"ext_modules": ext_modules})
 
 dist.run_command("build_ext")

@@ -1,5 +1,6 @@
 import datetime
 
+from typing import ClassVar
 from uuid import UUID
 
 from cwtch import asdict, dataclass, dumps_json, field
@@ -114,3 +115,11 @@ class TestDumps:
         )
 
         assert dumps_json(m) == b'{"id":"uuid","date":"date","datetime":"datetime","time":"time"}'
+
+    def test_classvar(self):
+        @dataclass
+        class M:
+            i: int = 0
+            var: ClassVar[int] = 1
+
+        assert dumps_json(M()) == b'{"i":0}'

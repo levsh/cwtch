@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from models import *
+from .models import *
 
 
 RANGE = 1000

@@ -1,6 +1,6 @@
 import pytest
 
-from models import *
+from .models import *
 
 
 RANGE = 100

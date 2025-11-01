@@ -13,6 +13,9 @@ KW_ONLY: bool = False
 VALIDATE: bool = True
 """Default value for 'validate' argument in dataclass decorator."""
 
+RAISE_ON_FIRST_ERROR: bool = True
+"""Raise ValidationError on fist validation error. """
+
 ADD_DISABLE_VALIDATION_TO_INIT: bool = False
 """Default value for 'add_disable_validation_to_init' argument in dataclass decorator."""
 
@@ -25,11 +28,11 @@ REPR: bool = True
 EQ: bool = True
 """Default value for 'eq' argument in dataclass decorator."""
 
+HANDLE_CIRCULAR_REFS: bool = False
+"""Default value for 'handle_circular_refs' argument in dataclass decorator."""
+
 ATTACH: bool = True
 """Default value for 'attach' argument in view decorator."""
 
 RECURSIVE: bool = True
 """Default value for 'recursive' argument in dataclass decorator."""
-
-HANDLE_CIRCULAR_REFS: bool = False
-"""Default value for 'handle_circular_refs' argument in dataclass decorator."""

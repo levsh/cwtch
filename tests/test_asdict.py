@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import cwtch
 
 from cwtch.types import UNSET, SecretStr, Unset
@@ -109,3 +111,12 @@ def test_asdict_alias():
     m = M(**{"in": "a"})
     assert m.in_ == "a"
     assert cwtch.asdict(m) == {"in": "a"}
+
+
+def test_classvar():
+    @cwtch.dataclass
+    class M:
+        i: int = 0
+        var: ClassVar[int] = 1
+
+    assert cwtch.asdict(M()) == {"i": 0}

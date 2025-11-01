@@ -1,12 +1,16 @@
 [tool.poetry]
 name = "cwtch"
-version = "0.12.0"
+version = "0.13.dev"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 keywords = []
-packages = [{ include = "cwtch" }, { include = "src/*.pyx" }]
+packages = [
+    { include = "cwtch" },
+    { include = "src/core.pyx" },
+    { include = "src/metadata.pyx" }
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",

@@ -15,6 +15,7 @@ from typing import Any, Callable, ClassVar, Generic, Literal, Type, TypeVar, Uni
 
 import rich.repr
 
+from cwtch import config
 from cwtch.config import (
     ADD_DISABLE_VALIDATION_TO_INIT,
     ATTACH,
@@ -28,14 +29,15 @@ from cwtch.config import (
     SLOTS,
     VALIDATE,
 )
-from cwtch.core import _CACHE, _DEFAULT, _MISSING, UNSET, Unset, _Missing
+from cwtch.core import _DEFAULT, _MISSING, UNSET, Unset, UnsetType, _Missing, _to_view
 from cwtch.core import asdict as _asdict
 from cwtch.core import dumps_json as _dumps_json
-from cwtch.core import get_validator, validate_value, validate_value_using_validator
-from cwtch.errors import ValidationError
+from cwtch.core import get_cache, get_validator, type_adapter, validate_generic_alias, validate_value
+from cwtch.errors import Error, ValidationError
 
 
 __all__ = (
+    "clone",
     "is_cwtch_model",
     "is_cwtch_view",
     "field",
@@ -129,8 +131,8 @@ class Field:
     def __rich_repr__(self):
         yield "name", self.name
         yield "type", self.type
-        yield "default", self.default, True
-        yield "default_factory", self.default_factory, False
+        yield "default", self.default  # , True
+        yield "default_factory", self.default_factory  # , False
         yield "init", self.init
         yield "init_alias", self.init_alias
         yield "asdict_alias", self.asdict_alias
@@ -255,7 +257,7 @@ def dataclass(
         kw_only: If kw_only is true, then by default all fields are keyword-only.
         env_prefix: Prefix(or list of prefixes) for environment variables.
         env_source: Environment variables source factory. By default os.environ.
-        validate: Validate or not fields.
+        validate: If false, validation will be disabled for the entire class.
         add_disable_validation_to_init: Add disable_validation keywoard argument to `__init__()` method
             to disable validation.
         extra: Ignore or forbid extra arguments passed to init.
@@ -264,7 +266,7 @@ def dataclass(
             This method compares the class as if it were a tuple of its fields, in order.
             Both instances in the comparison must be of the identical type.
         recursive: ...
-        handle_circular_refs: Handle or not circular refs.
+        handle_circular_refs: If true, cwtch will handle circular references..
     """
 
     if slots is UNSET:
@@ -334,7 +336,8 @@ def view(
     base_cls,
     name: Unset[str] = UNSET,
     *,
-    attach: Unset[bool] = UNSET,
+    base: Unset[Type] = UNSET,
+    attach: Unset[bool | Type] = UNSET,
     include: Unset[Sequence[str]] = UNSET,
     exclude: Unset[Sequence[str]] = UNSET,
     slots: Unset[bool] = UNSET,
@@ -352,6 +355,7 @@ def view(
     """
     Args:
         name: View name.
+        base: Class to use as source.
         attach: If true, view will be attached to base cls.
         include: List of fields to include in view.
         exclude: List of fields to exclude from view.
@@ -388,7 +392,7 @@ def view(
     def wrapper(
         view_cls,
         *,
-        base_cls=base_cls,
+        base_cls=base or base_cls,
         name=name,
         attach=attach,
         include=include,
@@ -442,11 +446,14 @@ class _ViewDesc:
         self.view_cls = view_cls
 
     def __get__(self, obj, owner=None):
-        view_cls = self.view_cls
         if obj:
-            # TODO
-            return lambda: view_cls(**{k: v for k, v in _asdict(obj).items() if k in view_cls.__dataclass_fields__})
-        return view_cls
+
+            def asview():
+                return _to_view(self.view_cls, obj)
+
+            return asview
+
+        return self.view_cls
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -470,6 +477,129 @@ def _is_generic(cls) -> bool:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+def _get_parameters_map(cls, exclude_params=None) -> dict:
+    parameters_map = {}
+
+    if _is_generic(cls):
+        parameters_map = dict(
+            zip(
+                cls.__origin__.__parameters__,
+                (_instantiate_generic(arg) if _is_generic(arg) else arg for arg in cls.__args__),
+            )
+        )
+
+    if exclude_params:
+        for param in exclude_params:
+            parameters_map.pop(param, None)
+
+    return parameters_map
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_fields_substitution(cls, parameters_map=None, exclude_params=None) -> tuple[dict[str, dict], dict]:
+    fields_subst = {"type": {}, "default": {}, "default_factory": {}}
+    parameters_map = parameters_map or {}
+
+    origin = getattr(cls, "__origin__", None)
+    items = getattr(origin, "__orig_bases__", ())[::-1] + (cls,)
+
+    for item in items:
+
+        if not getattr(
+            getattr(item, "__origin__", item),
+            "__cwtch_model__",
+            None,
+        ) and not getattr(
+            getattr(item, "__origin__", item),
+            "__cwtch_view__",
+            None,
+        ):
+            continue
+
+        origin = getattr(item, "__origin__", None)
+
+        item_parameters_map = _get_parameters_map(item, exclude_params=exclude_params)
+
+        if not item_parameters_map:
+            continue
+
+        parameters_map.update(item_parameters_map)
+
+        for f_name, f in origin.__dataclass_fields__.items():  # type: ignore
+            for k in ("type", "default", "default_factory"):
+                k_v = getattr(f, k)
+                if hasattr(k_v, "__typing_subst__") and k_v in item_parameters_map:
+                    fields_subst[k][f_name] = k_v.__typing_subst__(item_parameters_map[k_v])
+                elif getattr(k_v, "__parameters__", None):
+                    fields_subst[k][f_name] = k_v[*[item_parameters_map[tp] for tp in k_v.__parameters__]]
+
+    return fields_subst, parameters_map
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_fields_substitution_for_view(fields, parameters_map) -> dict[str, dict]:
+    fields_subst = {"type": {}, "default": {}, "default_factory": {}}
+
+    for f_name, f in fields.items():
+        for k in ("type", "default", "default_factory"):
+            k_v = getattr(f, k)
+            if hasattr(k_v, "__typing_subst__") and k_v in parameters_map:
+                fields_subst[k][f_name] = k_v.__typing_subst__(parameters_map[k_v])
+            elif getattr(k_v, "__parameters__", None):
+                fields_subst[k][f_name] = k_v[
+                    *[parameters_map[tp] if tp in parameters_map else tp for tp in k_v.__parameters__]
+                ]
+
+    return fields_subst
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_substituted_fields(cls, fields_subst: dict[str, dict]) -> dict[str, Field]:
+    fields = {k: v for k, v in cls.__dataclass_fields__.items()}
+
+    for f_name, f in fields.items():
+        new_f = None
+
+        for k in ("type", "default", "default_factory"):
+            subst = fields_subst[k]
+
+            if f_name not in subst:
+                continue
+
+            if getattr(f, k) != subst[f_name]:
+                new_f = new_f or _copy_field(f)
+                setattr(new_f, k, subst[f_name])
+
+        if new_f:
+            fields[f_name] = new_f
+
+    return fields
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+def _get_substituted_annotations(cls, fields_subst: dict[str, dict]) -> dict:
+    annotations = {k: v for k, v in cls.__annotations__.items()}
+    subst = fields_subst["type"]
+
+    for k in cls.__annotations__:
+        if k not in subst:
+            continue
+        annotations[k] = subst[k]
+
+    return annotations
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
 @functools.cache
 def _instantiate_generic(tp):
     if not _is_generic(tp):
@@ -477,7 +607,8 @@ def _instantiate_generic(tp):
 
     __origin__ = tp.__origin__
 
-    x = ", ".join(map(lambda x: x.strip("'"), (arg.__name__ for arg in tp.__args__)))
+    x = ", ".join(map(lambda x: x.strip("'"), (getattr(arg, "__origin__", arg).__name__ for arg in tp.__args__)))
+
     cls = type(
         f"{__origin__.__name__}[{x}]",  # type: ignore
         (__origin__,),  # type: ignore
@@ -486,7 +617,11 @@ def _instantiate_generic(tp):
         },
     )
 
-    fields_subst = _get_fields_substitution(tp)
+    for k, v in list(cls.__dict__.items()):
+        if isinstance(v, _ViewDesc):
+            delattr(cls, k)
+
+    fields_subst, parameters_map = _get_fields_substitution(tp)
 
     if fields_subst:
         cls.__dataclass_fields__ = _get_substituted_fields(cls, fields_subst)
@@ -496,7 +631,10 @@ def _instantiate_generic(tp):
         if v.default is not _MISSING:
             setattr(cls, k, v)
 
-    cls = cls.cwtch_rebuild()
+    if is_cwtch_view(cls):
+        cls = cls.cwtch_rebuild(attach=False)
+    else:
+        cls = cls.cwtch_rebuild()
 
     # build views
     for f_k in __origin__.__dict__:
@@ -511,24 +649,27 @@ def _instantiate_generic(tp):
             bases += (Generic[*f_v.__parameters__],)  # type: ignore
 
         view_cls = new_class(
-            f_v.__name__,
+            f"{f_v.__name__}[{x}]",
             bases,
             exec_body=lambda ns: ns.update(
-                {f_name: f.default for f_name, f in f_v.__dataclass_fields__.items() if f.default is not _MISSING},
+                {
+                    f_name: _copy_field(f)
+                    for f_name, f in f_v.__dataclass_fields__.items()
+                    if f_name in f_v.__annotations__
+                }
             ),
         )
+
         view_cls.__annotations__ = {k: v for k, v in f_v.__annotations__.items()}
 
-        if getattr(f_v, "__parameters__", None):
-            view_fields_subst = {k: v for k, v in fields_subst.items()}
-            for k, v in _get_fields_substitution(cls, exclude_params=f_v.__parameters__).items():
-                view_fields_subst[k].update(v)
-        else:
-            view_fields_subst = fields_subst
+        view_fields_subst = _get_fields_substitution_for_view(view_cls.__dataclass_fields__, parameters_map)
 
         if view_fields_subst:
             view_cls.__dataclass_fields__ = _get_substituted_fields(f_v, view_fields_subst)
             view_cls.__annotations__ = _get_substituted_annotations(f_v, view_fields_subst)
+
+        for k in view_cls.__annotations__:
+            setattr(view_cls, k, view_cls.__dataclass_fields__[k])
 
         view_params = view_cls.__cwtch_view_params__
 
@@ -539,7 +680,7 @@ def _instantiate_generic(tp):
                 cls,
                 view_cls,
                 view_params.get("name", UNSET),
-                view_params.get("attach", UNSET),
+                cls,
                 view_params.get("include", UNSET),
                 view_params.get("exclude", UNSET),
                 view_params.get("slots", UNSET),
@@ -565,97 +706,17 @@ def _instantiate_generic(tp):
 def _make_class_getitem(__class__):
 
     def __class_getitem__(cls, *args, **kwds):
-        result = super().__class_getitem__(*args, **kwds)  # type: ignore
-        if not hasattr(result, "__cwtch_instantiated__"):
-            result = _instantiate_generic(result)
-            setattr(result, "__cwtch_instantiated__", True)
-        return result
+        origin = super().__class_getitem__(*args, **kwds)  # type: ignore
 
-    __class__.__class_getitem__ = __class_getitem__
+        if not hasattr(origin, "__cwtch_instantiated__"):
+            instantiated = _instantiate_generic(origin)
+            setattr(origin, "__cwtch_instantiated__", instantiated)
+
+        return origin.__cwtch_instantiated__
+
+    __class_getitem__.__cwtch_method__ = True  # type: ignore
 
     return __class_getitem__
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-def _get_parameters_map(cls, exclude_params=None) -> dict:
-    parameters_map = {}
-    if _is_generic(cls):
-        parameters_map = dict(
-            zip(
-                cls.__origin__.__parameters__,
-                (_instantiate_generic(arg) if _is_generic(arg) else arg for arg in cls.__args__),
-            )
-        )
-    if exclude_params:
-        for param in exclude_params:
-            parameters_map.pop(param, None)
-    return parameters_map
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-def _get_fields_substitution(cls, exclude_params=None) -> dict[str, dict]:
-    fields_subst = {"type": {}, "default": {}, "default_factory": {}}
-    origin = getattr(cls, "__origin__", None)
-    items = getattr(origin, "__orig_bases__", ())[::-1] + (cls,)
-    for item in items:
-        if not getattr(
-            getattr(item, "__origin__", item),
-            "__cwtch_model__",
-            None,
-        ) and not getattr(
-            getattr(item, "__origin__", item),
-            "__cwtch_view__",
-            None,
-        ):
-            continue
-        origin = getattr(item, "__origin__", None)
-        parameters_map = _get_parameters_map(item, exclude_params=exclude_params)
-        if not parameters_map:
-            continue
-        for f_name, f in origin.__dataclass_fields__.items():  # type: ignore
-            for k in ("type", "default", "default_factory"):
-                k_v = getattr(f, k)
-                if hasattr(k_v, "__typing_subst__") and k_v in parameters_map:
-                    fields_subst[k][f_name] = k_v.__typing_subst__(parameters_map[k_v])
-                elif getattr(k_v, "__parameters__", None):
-                    fields_subst[k][f_name] = k_v[*[parameters_map[tp] for tp in k_v.__parameters__]]
-    return fields_subst
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-def _get_substituted_fields(cls, fields_subst: dict[str, dict]) -> dict[str, Field]:
-    fields = {k: v for k, v in cls.__dataclass_fields__.items()}
-    for f_name, f in fields.items():
-        new_f = None
-        for k in ("type", "default", "default_factory"):
-            subst = fields_subst[k]
-            if f_name not in subst:
-                continue
-            if getattr(f, k) != subst[f_name]:
-                new_f = new_f or _copy_field(f)
-                setattr(new_f, k, subst[f_name])
-        if new_f:
-            fields[f_name] = new_f
-    return fields
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-def _get_substituted_annotations(cls, fields_subst: dict[str, dict]) -> dict:
-    annotations = {k: v for k, v in cls.__annotations__.items()}
-    subst = fields_subst["type"]
-    for k in cls.__annotations__:
-        if k not in subst:
-            continue
-        annotations[k] = subst[k]
-    return annotations
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -678,6 +739,7 @@ def _copy_field(f: Field) -> Field:
     new_f.name = f.name
     new_f.type = f.type
     new_f._field_type = f._field_type
+
     return new_f
 
 
@@ -702,6 +764,9 @@ def _create_fn(cls, name, args, body, *, globals=None, locals=None):
     text = f"def _create_fn({local_vars}):\n\n{text}\n\n    return {name}"
     ns = {}
 
+    # print()
+    # print(text)
+
     exec(text, globals, ns)
 
     return ns["_create_fn"](**locals)
@@ -718,18 +783,23 @@ def _create_init(
     env_source,
     handle_circular_refs,
 ):
+
+    def empty_validator(value, T, /):
+        return value
+
     globals = {}
     locals = {
+        "config": config,
         "_MISSING": _MISSING,
         "_DEFAULT": _DEFAULT,
-        "_cache_get": _CACHE.get,
-        "_validate": validate_value_using_validator,
+        "get_get": get_cache,
         "_env_prefixes": env_prefixes,
         "_env_source": env_source or _default_env_source,
         "_json_loads": json.loads,
         "_builtins_id": id,
         "ValidationError": ValidationError,
         "JSONDecodeError": json.JSONDecodeError,
+        "empty_validator": empty_validator,
     }
 
     fields = {k: v for k, v in fields.items() if v.init}
@@ -740,6 +810,7 @@ def _create_init(
         args.append("/")
 
     body = [
+        "errors = {}",
         "__cwtch_fields_set__ = ()",
         "__cwtch_extra_fields__ = ()",
     ]
@@ -770,7 +841,7 @@ def _create_init(
         if handle_circular_refs:
             body += [
                 "if __cwtch_cache_key is not None:",
-                "    _cache_get()[__cwtch_cache_key] = __cwtch_self__",
+                "    get_cache()[__cwtch_cache_key] = __cwtch_self__",
                 "try:",
             ]
             indent = " " * 4
@@ -782,10 +853,11 @@ def _create_init(
                 f"{indent}    allowed_extra_field_names = {{{', '.join(allowed_extra_field_names)}}}",
                 f"{indent}    for k in __extra_kwds:",
                 f"{indent}        if k not in allowed_extra_field_names:",
-                f"{indent}            raise TypeError(",
-                f'{indent}                f"{{__class__.__name__}}.__init__() "',
-                f"{indent}                f\"got an unexpected keyword argument '{{k}}'\"",
-                f"{indent}            )",
+                f"{indent}            err = TypeError('unexpected field')",
+                f"{indent}            if config.RAISE_ON_FIRST_ERROR:",
+                f"{indent}                raise ValidationError(..., __cwtch_self__.__class__, [err], path=[k])",
+                f"{indent}            else:",
+                f"{indent}                errors[k] = ValidationError(..., None, [err], path=[k])",
             ]
 
         any_fields = [
@@ -802,8 +874,10 @@ def _create_init(
                 args.append(f"{f.name}: t_{f.name} = _MISSING")
 
         kw_only_fields = [f for f in fields.values() if f.kw_only or (f.kw_only is UNSET and kw_only)]
+
         if kw_only_fields:
             args.append("*")
+
         for f in kw_only_fields:
             if f.default is not _MISSING or f.default_factory is not _MISSING:
                 args.append(f"{f.name}: t_{f.name} = _DEFAULT")
@@ -813,7 +887,7 @@ def _create_init(
         for field in any_fields + kw_only_fields:
             f_name = field.name
             locals[f"f_{f_name}"] = field
-            locals[f"t_{f_name}"] = field.type
+            locals[f"t_{f_name}"] = type_adapter(field.type)
             locals[f"d_{f_name}"] = field.default
             locals[f"df_{f_name}"] = field.default_factory
             if env_prefixes is not UNSET:
@@ -835,22 +909,27 @@ def _create_init(
                 else:
                     body += [
                         f"{indent}    else:",
-                        (
-                            f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
-                            f" missing required positional argument: '{f_name}'\")"
-                            if fields[f_name].kw_only is not True
-                            else f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
-                            f" missing required keyword-only argument: '{f_name}'\")"
-                        ),
+                        f"{indent}        err = TypeError('field required')",
+                        f"{indent}        if config.RAISE_ON_FIRST_ERROR:",
+                        f"{indent}            raise ValidationError(..., __cwtch_self__.__class__, [err], path=['{f_name}'])",
+                        f"{indent}        else:",
+                        f"{indent}            locals()[v_{f_name}] = empty_validator",
+                        f"{indent}            errors['{f_name}'] = ValidationError(..., None, [err], path=['{f_name}'])",
                     ]
                 body += [
                     f"{indent}else:",
                     f"{indent}    __cwtch_fields_set__ += ('{f_name}',)",
                 ]
             else:
-                body += [
-                    f"{indent}if {f_name} is _MISSING or {f_name} is _DEFAULT:",
-                ]
+                if field.default is not _MISSING or field.default_factory is not _MISSING:
+                    body += [
+                        f"{indent}if {f_name} is _MISSING or {f_name} is _DEFAULT:",
+                    ]
+                else:
+                    body += [
+                        f"{indent}if {f_name} is _MISSING:",
+                    ]
+
                 if field.init_alias:
                     body += [
                         f"{indent}    if '{field.init_alias}' in __extra_kwds:",
@@ -868,13 +947,12 @@ def _create_init(
                     ]
                 else:
                     body += [
-                        (
-                            f'{indent}    raise TypeError(f"{{__class__.__name__}}.__init__()'
-                            f" missing required positional argument: '{f_name}'\")"
-                            if fields[f_name].kw_only is not True
-                            else f'{indent}        raise TypeError(f"{{__class__.__name__}}.__init__()'
-                            f" missing required keyword-only argument: '{f_name}'\")"
-                        )
+                        f"{indent}    err = TypeError('field required')",
+                        f"{indent}    if config.RAISE_ON_FIRST_ERROR:",
+                        f"{indent}        raise ValidationError(..., __cwtch_self__.__class__, [err], path=['{f_name}'])",
+                        f"{indent}    else:",
+                        f"{indent}      locals()[v_{f_name}] = empty_validator",
+                        f"{indent}      errors['{f_name}'] = ValidationError(..., None, [err], path=['{f_name}'])",
                     ]
                 if field.init_alias:
                     indent = indent[:-4]
@@ -883,32 +961,64 @@ def _create_init(
                     f"{indent}    __cwtch_fields_set__ += ('{f_name}',)",
                 ]
             if field.validate or (field.validate is UNSET and validate):
-                locals[f"v_{f_name}"] = get_validator(field.type)
+                validator = get_validator(field.type)
+                if validator == validate_generic_alias:
+                    validator = get_validator(field.type.__origin__)
+                locals[f"v_{f_name}"] = validator
                 if add_disable_validation_to_init:
                     body += [
                         f"{indent}if disable_validation is not True:",
                         f"{indent}    try:",
-                        f"{indent}        _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
+                        f"{indent}        _{f_name} = v_{f_name}({f_name}, t_{f_name})",
                         f"{indent}    except Exception as e:",
-                        f"{indent}        raise ValidationError(",
-                        f"{indent}            ..., __class__, [e], path=['{f_name}'], path_value={f_name}"
-                        f"{indent}        )",
+                        f"{indent}        _{f_name} = None",
+                        f"{indent}        e.__cause__ = None",
+                        f"{indent}        if isinstance(e, ValidationError):",
+                        f"{indent}            path = ['{f_name}'] + (e.path or [])",
+                        f"{indent}        else:",
+                        f"{indent}            path = ['{f_name}']",
+                        f"{indent}        err  = ValidationError(..., __cwtch_self__.__class__, [e], path=path)",
+                        f"{indent}        err.__cause__ = None",
+                        f"{indent}        if config.RAISE_ON_FIRST_ERROR:",
+                        f"{indent}            err  = ValidationError(..., __cwtch_self__.__class__, [e], path=path)",
+                        f"{indent}            raise err",
+                        f"{indent}        else:",
+                        f"{indent}            err  = ValidationError(..., None, [e], path=path)",
+                        f"{indent}            errors['{f_name}'] = err",
+                    ]
+                    body += [
                         f"{indent}else:",
                         f"{indent}    _{f_name} = {f_name}",
                     ]
                 else:
                     body += [
                         f"{indent}try:",
-                        f"{indent}    _{f_name} = _validate({f_name}, t_{f_name}, v_{f_name})",
+                        f"{indent}    _{f_name} = v_{f_name}({f_name}, t_{f_name})",
                         f"{indent}except Exception as e:",
-                        f"{indent}    raise ValidationError(",
-                        f"{indent}        ..., __class__, [e], path=['{f_name}'], path_value={f_name}",
-                        f"{indent}    )",
+                        f"{indent}    _{f_name} = None",
+                        f"{indent}    e.__cause__ = None",
+                        f"{indent}    if isinstance(e, ValidationError):",
+                        f"{indent}        if e.value == ...:",
+                        f"{indent}            e.value = {f_name}",
+                        f"{indent}        path = ['{f_name}'] + (e.path or [])",
+                        f"{indent}    else:",
+                        f"{indent}        e = ValidationError({f_name}, t_{f_name}, [e])",
+                        f"{indent}        e.__cause__ = None",
+                        f"{indent}        path = ['{f_name}']",
+                        f"{indent}    if config.RAISE_ON_FIRST_ERROR:",
+                        f"{indent}        err = ValidationError(..., __cwtch_self__.__class__, [e], path=path)",
+                        f"{indent}        err.__cause__ = None",
+                        f"{indent}        raise err",
+                        f"{indent}    else:",
+                        f"{indent}        err = ValidationError(..., None, [e], path=path)",
+                        f"{indent}        err.__cause__ = None",
+                        f"{indent}        errors['{f_name}'] = err",
                     ]
             else:
                 body += [
                     f"{indent}_{f_name} = {f_name}",
                 ]
+
             if field.property:
                 body += [
                     f"__cwtch_self__._prop_{f_name} = _{f_name}",
@@ -922,8 +1032,13 @@ def _create_init(
         if handle_circular_refs:
             body += [
                 "finally:",
-                "    _cache_get().pop(__cwtch_cache_key, None)",
+                "    get_cache().pop(__cwtch_cache_key, None)",
             ]
+
+    body += [
+        "if errors:",
+        "    raise ValidationError(..., __cwtch_self__.__class__, list(errors.values()))",
+    ]
 
     if extra == "allow":
         body += [
@@ -946,30 +1061,46 @@ def _create_init(
 
     args += ["**__extra_kwds"]
 
-    body += [
-        "if '__post_init__' in __class__.__dict__:",
-        "    try:",
-        "        __class__.__dict__['__post_init__'](__cwtch_self__)",
-        "    except ValueError as e:",
-        "        raise ValidationError(",
-        "            __cwtch_self__,",
-        "            __class__,",
-        "            [e],",
-        "            path=[f'{__class__.__name__}.__post_init__']",
-        "        )",
-    ]
+    if "__post_init__" in cls.__dict__:
+        body += [
+            "try:",
+            "    __class__.__dict__['__post_init__'](__cwtch_self__)",
+            "except ValueError as e:",
+            "    if config.RAISE_ON_FIRST_ERROR:",
+            "        raise ValidationError(",
+            "            __cwtch_self__,",
+            "            __cwtch_self__.__class__,",
+            "            [e],",
+            "            path=[f'{__cwtch_self__.__class__.__name__}.__post_init__']",
+            "        )",
+            "    else:",
+            "        errors['__post_init__'] = ValidationError(",
+            "            __cwtch_self__,",
+            "            __cwtch_self__.__class__,",
+            "            [e],",
+            "            path=[f'{__cwtch_self__.__class__.__name__}.__post_init__']",
+            "        )",
+        ]
 
     if getattr(cls, "__post_validate__", None):
         body += [
             "try:",
             "    __cwtch_self__.__post_validate__()",
             "except ValueError as e:",
-            "    raise ValidationError(",
-            "        __cwtch_self__,",
-            "        __class__,",
-            "        [e],",
-            "        path=[f'{__class__.__name__}.__post_validate__']",
-            "    )",
+            "    if config.RAISE_ON_FIRST_ERROR:",
+            "        raise ValidationError(",
+            "            __cwtch_self__,",
+            "            __cwtch_self__.__class__,",
+            "            [e],",
+            "            path=[f'{__cwtch_self__.__class__.__name__}.__post_validate__']",
+            "        )",
+            "    else:",
+            "        errors['__post_validate__'] = ValidationError(",
+            "            __cwtch_self__,",
+            "            __cwtch_self__.__class__,",
+            "            [e],",
+            "            path=[f'{__cwtch_self__.__class__.__name__}.__post_validate__']",
+            "        )",
         ]
 
     __init__ = _create_fn(cls, "__init__", args, body, globals=globals, locals=locals)
@@ -998,7 +1129,9 @@ def _create_repr(cls):
 
 def _create_rich_repr(cls, fields):
     globals = {}
-    locals = {}
+    locals = {
+        "_MISSING": _MISSING,
+    }
 
     fields = {k: v for k, v in fields.items() if v.repr is not False}
 
@@ -1010,7 +1143,7 @@ def _create_rich_repr(cls, fields):
         return
 
     for f_name in fields:
-        body.append(f"yield '{f_name}', __cwtch_self__.{f_name}")
+        body.append(f"yield '{f_name}', getattr(__cwtch_self__, '{f_name}', _MISSING)")
 
     __rich_repr__ = _create_fn(cls, "__rich_repr__", args, body, globals=globals, locals=locals)
 
@@ -1046,6 +1179,28 @@ def _create_eq(cls, fields):
     return __eq__
 
 
+def _create_init_subclass(cls):
+    globals = {}
+    locals = {"_ViewDesc": _ViewDesc}
+
+    args = ["cls", "**kwds"]
+
+    body = [
+        "super().__init_subclass__(**kwds)",
+        "for k, v in cls.__base__.__dict__.items():",
+        "    if v.__class__ != _ViewDesc:",
+        "        continue",
+        "    setattr(cls, k, _ViewDesc(v.view_cls))",
+    ]
+
+    __init_subclass__ = _create_fn(cls, "__init_subclass__", args, body, globals=globals, locals=locals)
+
+    __init_subclass__.__module__ = cls.__module__
+    __init_subclass__.__qualname__ = f"{cls.__name__}.__init_subclass__"
+
+    return __init_subclass__
+
+
 def _sort_dataclass_fields(
     fields: dict[str, Field],
     base_fields: dict[str, Field],
@@ -1060,6 +1215,7 @@ def _sort_dataclass_fields(
       - kw_only_fields_base
       - kw_only_fields
     """
+
     any_fields = sorted(
         filter(
             lambda f: f.default is _MISSING and f.default_factory is _MISSING,
@@ -1067,6 +1223,7 @@ def _sort_dataclass_fields(
         ),
         key=lambda f: f.name in base_fields,
     )
+
     any_fields_with_default = sorted(
         filter(
             lambda f: f.default is not _MISSING or f.default_factory is not _MISSING,
@@ -1074,10 +1231,12 @@ def _sort_dataclass_fields(
         ),
         key=lambda f: f.name in base_fields,
     )
+
     kw_only_fields = sorted(
         [f for f in fields.values() if f.kw_only or (f.kw_only is UNSET and kw_only)],
         key=lambda f: f.name in base_fields,
     )
+
     return {f.name: f for f in chain(any_fields, any_fields_with_default, kw_only_fields)}
 
 
@@ -1183,7 +1342,10 @@ def _build(
         setattr(cls, "__eq__", _create_eq(cls, __dataclass_fields__))
 
     if hasattr(cls, "__parameters__"):
-        setattr(cls, "__class_getitem__", classmethod(_make_class_getitem(cls)))
+        if not hasattr(cls.__class_getitem__, "__cwtch_method__"):
+            setattr(cls, "__class_getitem__", classmethod(_make_class_getitem(cls)))
+
+    setattr(cls, "__init_subclass__", classmethod(_create_init_subclass(cls)))
 
     setattr(cls, "__cwtch_handle_circular_refs__", handle_circular_refs)
 
@@ -1250,6 +1412,8 @@ def _build(
         },
     )
 
+    setattr(cls, "__cwtch_views__", set())
+
     if rebuild:
         for k in cls.__dict__:
             v = getattr(cls, k)
@@ -1271,7 +1435,7 @@ def _build(
                         cls,
                         v,
                         view_params.get("name", UNSET),
-                        view_params.get("attach", UNSET),
+                        cls,
                         view_params.get("include", UNSET),
                         view_params.get("exclude", UNSET),
                         view_params.get("slots", UNSET),
@@ -1287,6 +1451,47 @@ def _build(
                         view_params.get("handle_circular_refs", UNSET),
                     ),
                 )
+
+    def view(
+        base_cls,
+        name: Unset[str] = UNSET,
+        *,
+        base: Unset[Type] = UNSET,
+        include: Unset[Sequence[str]] = UNSET,
+        exclude: Unset[Sequence[str]] = UNSET,
+        slots: Unset[bool] = UNSET,
+        kw_only: Unset[bool] = UNSET,
+        env_prefix: Unset[str | Sequence[str]] = UNSET,
+        env_source: Unset[Callable] = UNSET,
+        validate: Unset[bool] = UNSET,
+        add_disable_validation_to_init: Unset[bool] = UNSET,
+        extra: Unset[Literal["ignore", "forbid"]] = UNSET,
+        repr: Unset[bool] = UNSET,
+        eq: Unset[bool] = UNSET,
+        recursive: Unset[bool | Sequence[str]] = UNSET,
+        handle_circular_refs: Unset[bool] = UNSET,
+    ):
+        return globals()["view"](
+            base_cls,
+            name=name,
+            base=base,
+            attach=base_cls,
+            include=include,
+            exclude=exclude,
+            slots=slots,
+            kw_only=kw_only,
+            env_prefix=env_prefix,
+            env_source=env_source,
+            validate=validate,
+            add_disable_validation_to_init=add_disable_validation_to_init,
+            extra=extra,
+            repr=repr,
+            eq=eq,
+            recursive=recursive,
+            handle_circular_refs=handle_circular_refs,
+        )
+
+    cls.view = classmethod(view)
 
     return cls
 
@@ -1321,12 +1526,17 @@ def _build_view(
                     else tuple(update_type(arg, view_names) for arg in tp.__args__)
                 ),
             )
+
         if isinstance(tp, UnionType):
             return Union[*(update_type(arg, view_names) for arg in tp.__args__)]  # type: ignore
+
         if getattr(tp, "__cwtch_model__", None):
             for view_name in view_names:
                 if hasattr(tp, view_name):
                     return getattr(tp, view_name)
+            for view_name in view_names:
+                if hasattr(tp, "__cwtch_view_base__") and hasattr(tp.__cwtch_view_base__, view_name):
+                    return getattr(tp.__cwtch_view_base__, view_name)
         return tp
 
     __bases__ = view_cls.__bases__
@@ -1343,6 +1553,8 @@ def _build_view(
         __cwtch_params__ = cls.__cwtch_params__
 
     __cwtch_view_params__ = {
+        "include": include,
+        "exclude": exclude,
         "slots": __cwtch_params__["slots"],
         "kw_only": __cwtch_params__["kw_only"],
         "env_prefix": __cwtch_params__["env_prefix"],
@@ -1362,6 +1574,8 @@ def _build_view(
     if name is not UNSET:
         __cwtch_view_params__["name"] = name
     if attach is not UNSET:
+        if not isinstance(attach, bool) and not (is_cwtch_model(attach) or is_cwtch_view(attach)):
+            raise Error("'attach' parameter should be a bool, cwtch model or view")
         __cwtch_view_params__["attach"] = attach
     if include is not UNSET:
         __cwtch_view_params__["include"] = include
@@ -1451,10 +1665,10 @@ def _build_view(
         env_prefixes = [__cwtch_view_params__["env_prefix"]]
 
     for f in __dataclass_fields__.values():
-        if not __cwtch_view_params__["slots"] and f.default is not _MISSING:
-            __dict__[f.name] = f.default
-        else:
+        if __cwtch_view_params__["slots"]:
             __dict__.pop(f.name, None)
+        elif f.default is not _MISSING:
+            __dict__[f.name] = f.default
 
     if not rebuild:
         if __cwtch_view_params__["slots"]:
@@ -1465,7 +1679,7 @@ def _build_view(
             )
             __dict__["__slots__"] = __slots__ + ("__cwtch_fields_set__", "__cwtch_extra_fields__")
         __dict__.pop("__dict__", None)
-        view_cls = type(view_cls.__name__, view_cls.__bases__, __dict__)
+        view_cls = type(view_cls.__name__, __bases__, __dict__)
 
     setattr(
         view_cls,
@@ -1500,7 +1714,8 @@ def _build_view(
         )
 
     if getattr(view_cls, "__parameters__", None):
-        setattr(view_cls, "__class_getitem__", classmethod(_make_class_getitem(view_cls)))
+        if not hasattr(view_cls.__class_getitem__, "__cwtch_method__"):
+            setattr(view_cls, "__class_getitem__", classmethod(_make_class_getitem(view_cls)))
 
     __class__ = view_cls  # noqa: F841
 
@@ -1522,18 +1737,21 @@ def _build_view(
     setattr(view_cls, "__cwtch_model__", True)
     setattr(view_cls, "__cwtch_view_name__", view_name)
     setattr(view_cls, "__cwtch_view__", True)
-    setattr(view_cls, "__cwtch_view_base__", getattr(cls, "__cwtch_view_base__", cls))
+    setattr(view_cls, "__cwtch_view_base__", cls)
     setattr(view_cls, "__cwtch_view_params__", __cwtch_view_params__)
     setattr(view_cls, "__dataclass_fields__", __dataclass_fields__)
 
-    def cwtch_rebuild(view_cls):
+    if "__post_validate__" in cls.__dict__:
+        setattr(view_cls, "__post_validate__", cls.__post_validate__)
+
+    def cwtch_rebuild(view_cls, attach: bool | UnsetType = UNSET):
         if not getattr(view_cls, "__cwtch_view__", None):
             raise Exception("not cwtch view")
         return _build_view(
             view_cls.__cwtch_view_base__,
             view_cls,
             name=name,
-            attach=attach,
+            attach=attach if attach != UNSET else __cwtch_view_params__.get("attach", UNSET),
             include=include,
             exclude=exclude,
             slots=slots,
@@ -1552,8 +1770,18 @@ def _build_view(
 
     setattr(view_cls, "cwtch_rebuild", classmethod(cwtch_rebuild))
 
+    setattr(view_cls, "__cwtch_views__", set())
+
     if attach or (attach is UNSET and ATTACH):
-        setattr(cls, view_name, _ViewDesc(view_cls))
+        if isinstance(attach, (bool, UnsetType)):
+            attach_to = cls
+        else:
+            attach_to = attach
+        setattr(attach_to, view_name, _ViewDesc(view_cls))
+        for k in attach_to.__cwtch_views__:
+            setattr(view_cls, k, _ViewDesc(getattr(attach_to, k)))
+            setattr(getattr(attach_to, k), view_name, _ViewDesc(view_cls))
+        attach_to.__cwtch_views__.add(view_name)
 
     return view_cls
 
@@ -1590,8 +1818,9 @@ def from_attributes(
     if exclude:
         kwds = {k: v for k, v in kwds.items() if k not in exclude}
 
-    cache = _CACHE.get()
+    cache = get_cache()
     cache["reset_circular_refs"] = reset_circular_refs
+
     try:
         return cls(__cwtch_cache_key=(cls, id(obj)), **kwds)
     finally:
@@ -1653,6 +1882,7 @@ def resolve_types(cls, globalns=None, localns=None, *, include_extras: bool = Tr
     kwds = {"globalns": globalns, "localns": localns, "include_extras": include_extras}
 
     hints = typing.get_type_hints(cls, **kwds)
+
     for f_name, f in cls.__dataclass_fields__.items():
         if f_name in hints:
             f.type = hints[f_name]
@@ -1680,6 +1910,7 @@ def validate_args(fn: Callable, args: tuple, kwds: dict) -> tuple[tuple, dict]:
     annotations = {k: v.annotation for k, v in signature(fn).parameters.items()}
 
     validated_args = []
+
     for v, (arg_name, T) in zip(args, annotations.items()):
         if T != _empty:
             try:
@@ -1690,6 +1921,7 @@ def validate_args(fn: Callable, args: tuple, kwds: dict) -> tuple[tuple, dict]:
             validated_args.append(v)
 
     validated_kwds = {}
+
     for arg_name, v in kwds.items():
         T = annotations[arg_name]
         if T != _empty:
@@ -1709,5 +1941,129 @@ def validate_call(fn):
     def wrapper(*args, **kwds):
         validate_args(fn, args, kwds)
         return fn(*args, **kwds)
+
+    return wrapper
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+@dataclass_transform(field_specifiers=(field,))
+def clone(
+    base_cls,
+    *,
+    include: Unset[Sequence[str]] = UNSET,
+    exclude: Unset[Sequence[str]] = UNSET,
+    slots: Unset[bool] = UNSET,
+    kw_only: Unset[bool] = UNSET,
+    env_prefix: Unset[str | Sequence[str]] = UNSET,
+    env_source: Unset[Callable] = UNSET,
+    validate: Unset[bool] = UNSET,
+    add_disable_validation_to_init: Unset[bool] = UNSET,
+    extra: Unset[Literal["ignore", "forbid"]] = UNSET,
+    repr: Unset[bool] = UNSET,
+    eq: Unset[bool] = UNSET,
+    handle_circular_refs: Unset[bool] = UNSET,
+) -> Callable[[Type[T]], Type[T]]:
+    """
+    TODO
+    """
+
+    if not (is_cwtch_model(base_cls) or is_cwtch_view(base_cls)):
+        raise TypeError(f"{base_cls} is not a valid cwtch model or view")
+
+    if is_cwtch_view(base_cls):
+        name = base_cls.__cwtch_view_name__
+    else:
+        name = UNSET
+
+    def wrapper(
+        view_cls,
+        *,
+        base_cls=base_cls,
+        name=name,
+        attach=False,
+        include=include,
+        exclude=exclude,
+        slots=slots,
+        kw_only=kw_only,
+        env_prefix=env_prefix,
+        env_source=env_source,
+        validate=validate,
+        add_disable_validation_to_init=add_disable_validation_to_init,
+        extra=extra,
+        repr=repr,
+        eq=eq,
+        recursive=False,
+        handle_circular_refs=handle_circular_refs,
+    ):
+        if exclude and set(exclude) & view_cls.__annotations__.keys():  # type: ignore
+            raise ValueError(f"unable to exclude fields {list(set(exclude) & view_cls.__annotations__.keys())}")  # type: ignore
+
+        clone = _build_view(
+            base_cls,
+            view_cls,
+            name,
+            attach,
+            include,
+            exclude,
+            slots,
+            kw_only,
+            cast(
+                Unset[Sequence[str]],
+                env_prefix if env_prefix is UNSET or isinstance(env_prefix, (list, tuple, str)) else [env_prefix],
+            ),
+            env_source,
+            validate,
+            add_disable_validation_to_init,
+            extra,
+            repr,
+            eq,
+            recursive,
+            handle_circular_refs,
+        )
+
+        def view(
+            base_cls,
+            name: Unset[str] = UNSET,
+            *,
+            base: Unset[Type] = UNSET,
+            include: Unset[Sequence[str]] = UNSET,
+            exclude: Unset[Sequence[str]] = UNSET,
+            slots: Unset[bool] = UNSET,
+            kw_only: Unset[bool] = UNSET,
+            env_prefix: Unset[str | Sequence[str]] = UNSET,
+            env_source: Unset[Callable] = UNSET,
+            validate: Unset[bool] = UNSET,
+            add_disable_validation_to_init: Unset[bool] = UNSET,
+            extra: Unset[Literal["ignore", "forbid"]] = UNSET,
+            repr: Unset[bool] = UNSET,
+            eq: Unset[bool] = UNSET,
+            recursive: Unset[bool | Sequence[str]] = UNSET,
+            handle_circular_refs: Unset[bool] = UNSET,
+        ):
+            return globals()["view"](
+                base_cls,
+                name=name,
+                base=base,
+                attach=base_cls,
+                include=include,
+                exclude=exclude,
+                slots=slots,
+                kw_only=kw_only,
+                env_prefix=env_prefix,
+                env_source=env_source,
+                validate=validate,
+                add_disable_validation_to_init=add_disable_validation_to_init,
+                extra=extra,
+                repr=repr,
+                eq=eq,
+                recursive=recursive,
+                handle_circular_refs=handle_circular_refs,
+            )
+
+        clone.view = classmethod(view)
+
+        return clone
 
     return wrapper

@@ -1,7 +1,7 @@
 import os
 import re
 
-from typing import Annotated, ForwardRef, Generic, Literal, Optional, TypeVar
+from typing import Annotated, ClassVar, ForwardRef, Generic, Literal, Optional, TypeVar
 from unittest import mock
 
 import pytest
@@ -12,7 +12,7 @@ from cwtch import asdict, dataclass, field, make_json_schema, validate_args, val
 from cwtch.core import _MISSING
 from cwtch.errors import ValidationError
 from cwtch.metadata import Ge, Gt, JsonLoads, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
-from cwtch.types import UNSET, LowerStr, Number, Strict, Unset, UpperStr
+from cwtch.types import UNSET, LowerStr, NonZeroLen, Number, Strict, Unset, UpperStr
 
 
 T = TypeVar("T")
@@ -26,7 +26,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Ge(value=1)] ] input_type[ <class 'int'> ] input_value[ 0 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Ge(value=1)]\n"
+                    "  Input: 0\n"
                     "  ValueError: value should be >= 1"
                 )
             ),
@@ -38,7 +40,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Ge(value=2), Ge(value=1)] ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Ge(value=2), Ge(value=1)]\n"
+                    "  Input: 1\n"
                     "  ValueError: value should be >= 2"
                 )
             ),
@@ -51,7 +55,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Gt(value=0)] ] input_type[ <class 'int'> ] input_value[ 0 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Gt(value=0)]\n"
+                    "  Input: 0\n"
                     "  ValueError: value should be > 0"
                 )
             ),
@@ -63,7 +69,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Gt(value=2), Gt(value=1)] ] input_type[ <class 'int'> ] input_value[ 2 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Gt(value=2), Gt(value=1)]\n"
+                    "  Input: 2\n"
                     "  ValueError: value should be > 2"
                 )
             ),
@@ -76,7 +84,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Le(value=1)] ] input_type[ <class 'int'> ] input_value[ 2 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Le(value=1)]\n"
+                    "  Input: 2\n"
                     "  ValueError: value should be <= 1"
                 )
             ),
@@ -88,7 +98,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Le(value=1), Le(value=2)] ] input_type[ <class 'int'> ] input_value[ 2 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Le(value=1), Le(value=2)]\n"
+                    "  Input: 2\n"
                     "  ValueError: value should be <= 1"
                 )
             ),
@@ -101,7 +113,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Lt(value=0)] ] input_type[ <class 'int'> ] input_value[ 0 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Lt(value=0)]\n"
+                    "  Input: 0\n"
                     "  ValueError: value should be < 0"
                 )
             ),
@@ -113,7 +127,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Lt(value=0), Lt(value=1)] ] input_type[ <class 'int'> ] input_value[ 0 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[int, Lt(value=0), Lt(value=1)]\n"
+                    "  Input: 0\n"
                     "  ValueError: value should be < 0"
                 )
             ),
@@ -126,7 +142,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[str, MinLen(value=1)] ] input_type[ <class 'str'> ] input_value[ '' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[str, MinLen(value=1)]\n"
+                    "  Input: ''\n"
                     "  ValueError: value length should be >= 1"
                 )
             ),
@@ -138,7 +156,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[str, MinLen(value=2), MinLen(value=1)] ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[str, MinLen(value=2), MinLen(value=1)]\n"
+                    "  Input: 'a'\n"
                     "  ValueError: value length should be >= 2"
                 )
             ),
@@ -151,7 +171,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[str, MaxLen(value=1)] ] input_type[ <class 'str'> ] input_value[ 'ab' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[str, MaxLen(value=1)]\n"
+                    "  Input: 'ab'\n"
                     "  ValueError: value length should be <= 1"
                 )
             ),
@@ -163,7 +185,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[str, MaxLen(value=1), MaxLen(value=2)] ] input_type[ <class 'str'> ] input_value[ 'ab' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[str, MaxLen(value=1), MaxLen(value=2)]\n"
+                    "  Input: 'ab'\n"
                     "  ValueError: value length should be <= 1"
                 )
             ),
@@ -176,7 +200,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MinItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [] ]\n"
+                    "\n"
+                    "  Type: <class 'list'> --> Annotated[list, MinItems(value=1)]\n"
+                    "  Input: []\n"
                     "  ValueError: items count should be >= 1"
                 )
             ),
@@ -188,7 +214,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MinItems(value=2), MinItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [0] ]\n"
+                    "\n"
+                    "  Type: <class 'list'> --> Annotated[list, MinItems(value=2), MinItems(value=1)]\n"
+                    "  Input: [0]\n"
                     "  ValueError: items count should be >= 2"
                 )
             ),
@@ -201,7 +229,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MaxItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [0, 1] ]\n"
+                    "\n"
+                    "  Type: <class 'list'> --> Annotated[list, MaxItems(value=1)]\n"
+                    "  Input: [0, 1]\n"
                     "  ValueError: items count should be <= 1"
                 )
             ),
@@ -213,7 +243,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[list, MaxItems(value=1), MaxItems(value=2)] ] input_type[ <class 'list'> ] input_value[ [0, 1] ]\n"
+                    "\n"
+                    "  Type: <class 'list'> --> Annotated[list, MaxItems(value=1), MaxItems(value=2)]\n"
+                    "  Input: [0, 1]\n"
                     "  ValueError: items count should be <= 1"
                 )
             ),
@@ -226,8 +258,14 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ list[Annotated[int, Ge(value=1)]] ] input_type[ <class 'list'> ] path[ 2 ] path_value[ 0 ] path_value_type[ <class 'int'> ]\n"
-                    "  ValueError: value should be >= 1"
+                    "\n"
+                    "  Type: <class 'list'> --> list[Annotated[int, Ge(value=1)]]\n"
+                    "  Input: [1, 2, 0]\n"
+                    "  Path: [2]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'int'> --> Annotated[int, Ge(value=1)]\n"
+                    "    Input: 0\n"
+                    "    ValueError: value should be >= 1"
                 )
             ),
         ):
@@ -238,8 +276,14 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ list[Annotated[int, Ge(value=1)]] ] input_type[ <class 'tuple'> ] path[ 2 ] path_value[ 0 ] path_value_type[ <class 'int'> ]\n"
-                    "  ValueError: value should be >= 1"
+                    "\n"
+                    "  Type: <class 'tuple'> --> list[Annotated[int, Ge(value=1)]]\n"
+                    "  Input: (1, 2, 0)\n"
+                    "  Path: [2]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'int'> --> Annotated[int, Ge(value=1)]\n"
+                    "    Input: 0\n"
+                    "    ValueError: value should be >= 1"
                 )
             ),
         ):
@@ -259,7 +303,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Strict(type=[<class 'int'>])] ] input_type[ <class 'str'> ] input_value[ '1' ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[int, Strict(type=[<class 'int'>])]\n"
+                    "  Input: '1'\n"
                     "  ValueError: invalid value for <class 'int'>"
                 )
             ),
@@ -269,7 +315,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[int, Strict(type=[<class 'int'>])] ] input_type[ <class 'bool'> ] input_value[ True ]\n"
+                    "\n"
+                    "  Type: <class 'bool'> --> Annotated[int, Strict(type=[<class 'int'>])]\n"
+                    "  Input: True\n"
                     "  ValueError: invalid value for <class 'int'>"
                 )
             ),
@@ -282,7 +330,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[float, Strict(type=[<class 'float'>])] ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[float, Strict(type=[<class 'float'>])]\n"
+                    "  Input: 1\n"
                     "  ValueError: invalid value for <class 'float'>"
                 )
             ),
@@ -292,7 +342,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[float, Strict(type=[<class 'float'>])] ] input_type[ <class 'bool'> ] input_value[ True ]\n"
+                    "\n"
+                    "  Type: <class 'bool'> --> Annotated[float, Strict(type=[<class 'float'>])]\n"
+                    "  Input: True\n"
                     "  ValueError: invalid value for <class 'float'>"
                 )
             ),
@@ -306,11 +358,16 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Union[Annotated[int, Strict(type=[<class 'int'>])], "
-                    "Annotated[float, Strict(type=[<class 'float'>])]] ] input_type[ <class 'str'> ] input_value[ '1' ]\n"
-                    "  type[ Annotated[int, Strict(type=[<class 'int'>])] ] input_type[ <class 'str'> ]\n"
+                    "\n"
+                    "  Type: <class 'str'> --> Union[Annotated[int, Strict(type=[<class 'int'>])], Annotated[float, Strict(type=[<class 'float'>])]]\n"
+                    "  Input: '1'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> Annotated[int, Strict(type=[<class 'int'>])]\n"
+                    "    Input: '1'\n"
                     "    ValueError: invalid value for <class 'int'>\n"
-                    "  type[ Annotated[float, Strict(type=[<class 'float'>])] ] input_type[ <class 'str'> ]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> Annotated[float, Strict(type=[<class 'float'>])]\n"
+                    "    Input: '1'\n"
                     "    ValueError: invalid value for <class 'float'>"
                 )
             ),
@@ -320,11 +377,16 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Union[Annotated[int, Strict(type=[<class 'int'>])], "
-                    "Annotated[float, Strict(type=[<class 'float'>])]] ] input_type[ <class 'bool'> ] input_value[ True ]\n"
-                    "  type[ Annotated[int, Strict(type=[<class 'int'>])] ] input_type[ <class 'bool'> ]\n"
+                    "\n"
+                    "  Type: <class 'bool'> --> Union[Annotated[int, Strict(type=[<class 'int'>])], Annotated[float, Strict(type=[<class 'float'>])]]\n"
+                    "  Input: True\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'bool'> --> Annotated[int, Strict(type=[<class 'int'>])]\n"
+                    "    Input: True\n"
                     "    ValueError: invalid value for <class 'int'>\n"
-                    "  type[ Annotated[float, Strict(type=[<class 'float'>])] ] input_type[ <class 'bool'> ]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'bool'> --> Annotated[float, Strict(type=[<class 'float'>])]\n"
+                    "    Input: True\n"
                     "    ValueError: invalid value for <class 'float'>"
                 )
             ),
@@ -337,7 +399,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[str, Strict(type=[<class 'str'>])] ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[str, Strict(type=[<class 'str'>])]\n"
+                    "  Input: 1\n"
                     "  ValueError: invalid value for <class 'str'>"
                 )
             ),
@@ -347,7 +411,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[str, Strict(type=[<class 'str'>])] ] input_type[ <class 'bool'> ] input_value[ True ]\n"
+                    "\n"
+                    "  Type: <class 'bool'> --> Annotated[str, Strict(type=[<class 'str'>])]\n"
+                    "  Input: True\n"
                     "  ValueError: invalid value for <class 'str'>"
                 )
             ),
@@ -361,7 +427,9 @@ class TestMetadata:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ Annotated[bool, Strict(type=[<class 'bool'>])] ] input_type[ <class 'int'> ] input_value[ 1 ]\n"
+                    "\n"
+                    "  Type: <class 'int'> --> Annotated[bool, Strict(type=[<class 'bool'>])]\n"
+                    "  Input: 1\n"
                     "  ValueError: invalid value for <class 'bool'>"
                 )
             ),
@@ -442,8 +510,12 @@ class TestModel:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'test_cwtch.M'> ] path[ 'i' ]\n"
-                    "  type[ <class 'int'> ] input_type[ <class 'str'> ] input_value[ 'a' ]\n"
+                    "\n"
+                    "  Type: --> <class 'test_cwtch.M'>\n"
+                    "  Path: ['i']\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
                     "    ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
@@ -513,8 +585,8 @@ class TestModel:
             i: int
 
         with pytest.raises(
-            TypeError,
-            match=re.escape("M.__init__() got an unexpected keyword argument 's'"),
+            ValidationError,
+            match=re.escape("unexpected field"),
         ):
             M(i=0, s="s")
 
@@ -615,9 +687,17 @@ class TestModel:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'cwtch.cwtch.C[int]'> ] path[ 'x' ]\n"
-                    "  type[ list[int] ] input_type[ <class 'list'> ] path[ 0 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "    ValueError: invalid literal for int() with base 10: 'a'"
+                    "  Type: <class 'dict'> --> <class 'cwtch.cwtch.C[int]'>\n"
+                    "  Input: {'x': ['a']}\n"
+                    "  Path: ['x', 0]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'list'> --> list[int]\n"
+                    "    Input: ['a']\n"
+                    "    Path: [0]\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -627,9 +707,16 @@ class TestModel:
             ValidationError,
             match=re.escape(
                 (
-                    "type[ <class 'cwtch.cwtch.C[int]'> ] path[ 'x' ]\n"
-                    "  type[ list[int] ] input_type[ <class 'list'> ] path[ 0 ] path_value[ 'a' ] path_value_type[ <class 'str'> ]\n"
-                    "    ValueError: invalid literal for int() with base 10: 'a'"
+                    "  Type: --> <class 'cwtch.cwtch.C[int]'>\n"
+                    "  Path: ['x', 0]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'list'> --> list[int]\n"
+                    "    Input: ['a']\n"
+                    "    Path: [0]\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'a'"
                 )
             ),
         ):
@@ -643,10 +730,7 @@ class TestModel:
         M(0)
         M(i=0)
 
-        with pytest.raises(
-            TypeError,
-            match=re.escape("M.__init__() missing required positional argument: 'i'"),
-        ):
+        with pytest.raises(ValidationError, match=re.escape("field required")):
             M()
 
     def test_post_init(self):
@@ -844,6 +928,16 @@ class TestModel:
         assert b.d is None
         assert b.e == 3
 
+    def test_classvar(self):
+        @dataclass
+        class M:
+            i: int = 0
+            var: ClassVar[int] = 1
+
+        assert "var" not in M.__dataclass_fields__
+        assert M().i == 0
+        assert M().var == 1
+
 
 class TestView:
     def test_dict(self):
@@ -1014,7 +1108,7 @@ class TestView:
         v1 = M.V1(i="1", b="n")
         assert v1.i == 1
 
-        with pytest.raises(TypeError, match=re.escape("V2.__init__() got an unexpected keyword argument 'b'")):
+        with pytest.raises(ValidationError, match=re.escape("unexpected field")):
             v2 = M.V2(i="1", b="n")
 
     def test_validate(self):
@@ -1081,7 +1175,7 @@ class TestView:
         assert issubclass(B, A)
         assert B.V1
         assert B.V2
-        assert not issubclass(B.V1, A.V1)
+        assert issubclass(B.V1, A.V1)
         assert issubclass(B.V2, A.V2)
 
     def test_slots(self):
@@ -1208,6 +1302,24 @@ class TestJsonSchema:
                         "f": {"type": "array", "items": {"type": "number"}},
                     },
                     "required": ["i", "s", "l", "f"],
+                }
+            },
+        )
+
+        @view(Model, "V1", include=["i", "s"])
+        class ModelV1:
+            s: NonZeroLen[str]
+
+        assert make_json_schema(ModelV1) == (
+            {"$ref": "#/$defs/ModelV1"},
+            {
+                "ModelV1": {
+                    "type": "object",
+                    "properties": {
+                        "i": {"type": "integer", "minimum": 1, "maximum": 10, "exclusiveMaximum": True},
+                        "s": {"type": "string", "minLength": 1},
+                    },
+                    "required": ["i", "s"],
                 }
             },
         )
