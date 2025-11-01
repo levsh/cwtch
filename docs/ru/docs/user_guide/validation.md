@@ -6,48 +6,62 @@
 from cwtch import dataclass
 
 @dataclass(validate=False)
-class D:
+class M:
     i: int
 ```
 
 ```python
->>> print(D(i="a")
-D(i="a")
+>>> print(M(i="a")
+M(i="a")
 ```
 
 ```python
 from cwtch import dataclass, field
 
 @dataclass
-class D:
+class M:
     i: int = field(validate=False)
     s: str
 ```
 
 ```python
->>> D(i="a", s=1)
-D(i="a", s="1")
+>>> M(i="a", s=1)
+M(i="a", s="1")
 ```
 
 
 ### Валидация булевых типов
 
-Значения из списка:
+Значения трактуются согласно карте:
 
 ```python
-[True, 1, "1", "true", "t", "y", "yes", "True", "TRUE", "Y", "Yes", "YES"]
+BOOL_MAP = {
+    True: True,
+    1: True,
+    "1": True,
+    "t": True,
+    "true": True,
+    "True": True,
+    "TRUE": True,
+    "y": True,
+    "Y": True,
+    "yes": True,
+    "Yes": True,
+    "YES": True,
+    False: False,
+    0: False,
+    "0": False,
+    "f": False,
+    "false": False,
+    "False": False,
+    "FALSE": False,
+    "n": False,
+    "N": False,
+    "no": False,
+    "No": False,
+    "NO": False
+}
 ```
-
-трактуются как `True`.
-
-Значения из списка:
-
-```python
-[False, 0, "0", "false", "f", "n", "no", "False", "FALSE", "N", "No", "NO"]
-```
-
-трактуются как `False`.
-
 
 ### Пост валидация
 
@@ -58,7 +72,7 @@ D(i="a", s="1")
 
 ```python
 @dataclass
-class D:
+class M:
     i: int
     j: int
 
@@ -91,7 +105,7 @@ class CustomValidator(TypeMetadata):
         return value
 
 @dataclass
-class D:
+class M:
     i: Annotated[int, CustomValidator()]
 ```
 
@@ -104,11 +118,11 @@ from cwtch.metadata import Validator
 from typing import Annotated
 
 @dataclass
-class D:
+class M:
     i: Annotated[int, Validator(after=lambda v: v / 2)]
 
->>> D(i='2')
-D(i=1.0)
+>>> M(i='2')
+M(i=1.0)
 ```
 
 ```python
@@ -118,23 +132,23 @@ from cwtch.metadata import Ge, Gt, Le, Lt, MaxItems, MaxLen, MinItems, MinLen
 from cwtch.types import Positive, Strict
 
 @dataclass
-class D:
+class M:
     i: Annotated[Strict[Positive[int]], Ge(1)]
     items: Annotated[list[int], MinItems(1)]
 ```
 
 ```python
->>> D(i=0, items=[0])
+>>> M(i=0, items=[0])
 ...
-ValidationError: type[ <class '__main__.D'> ] path[ 'i' ]
+ValidationError: type[ <class '__main__.M'> ] path[ 'i' ]
   type[ Annotated[int, Ge(value=1)] ] input_type[ <class 'int'> ] input_value[ 0 ]
     ValueError: value should be >= 1
 ```
 
 ```python
->>> D(i=1, items=[])
+>>> M(i=1, items=[])
 ...
-ValidationError: type[ <class '__main__.D'> ] path[ 'items' ]
+ValidationError: type[ <class '__main__.M'> ] path[ 'items' ]
   type[ Annotated[list[int], MinItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [] ]
     ValueError: items count should be >= 1
 ```

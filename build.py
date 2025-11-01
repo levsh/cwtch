@@ -12,12 +12,6 @@ extensions = [
             os.path.join(cython_dir, "core.pyx"),
         ],
     ),
-    Extension(
-        "cwtch.metadata",
-        [
-            os.path.join(cython_dir, "metadata.pyx"),
-        ],
-    ),
 ]
 
 ext_modules = cythonize(

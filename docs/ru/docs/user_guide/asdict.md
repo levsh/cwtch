@@ -4,10 +4,10 @@
 from cwtch import asdict, dataclass
 
 @dataclass
-class D:
+class M:
     i: int
 
-d = D(1)
+d = M(1)
 assert asdict(d) == {"i": 1}
 ```
 
@@ -15,7 +15,7 @@ assert asdict(d) == {"i": 1}
 
 ```python
 @dataclass
-class D:
+class M:
     i: int
 
     def __cwtch_asdict__(self, handler: Callable, kwds: AsDictKwds):

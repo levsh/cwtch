@@ -63,13 +63,13 @@ def _is_classvar(tp) -> bool:
 
 
 def is_cwtch_model(cls) -> bool:
-    """Check if class is a cwtch model."""
+    """Check if class or instance is a cwtch model."""
 
     return bool(getattr(cls, "__cwtch_model__", None) and not getattr(cls, "__cwtch_view__", None))
 
 
 def is_cwtch_view(cls) -> bool:
-    """Check if class is a cwtch view."""
+    """Check if class or instance is a cwtch view."""
 
     return bool(getattr(cls, "__cwtch_model__", None) and getattr(cls, "__cwtch_view__", None))
 
@@ -203,12 +203,12 @@ def field(
         default: The default value of the field.
         default_factory: A 0-argument function called to initialize a field's value.
         init: If init is true, the field will be a parameter to the class's `__init__()` function.
-        init_alias: ...
-        asdict_alias: ...
+        init_alias: Field alias for __init__.
+        asdict_alias: Field alis for asdict.
         repr: If repr is true, the field will be included in the object's repr().
         compare: If compare is true, the field will be used in comparison functions.
-        property:
-        validate:
+        property: If true fiels will became a property.
+        validate: Validate or not.
         metadata: If specified, must be a mapping which is stored but not otherwise examined by dataclass.
         kw_only: If kw_only true, the field will become a keyword-only parameter to `__init__()`.
 

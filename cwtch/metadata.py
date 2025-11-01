@@ -1,6 +1,4 @@
-# cython: language_level=3
-# cython: profile=False
-# distutils: language=c
+# ruff: noqa: F401
 
 import re
 import types
@@ -8,7 +6,6 @@ import typing
 
 from typing import Any, Literal, NewType, Type, TypeVar
 
-import cython
 import orjson
 
 
@@ -59,12 +56,6 @@ class Validator(ValidatorBefore, ValidatorAfter):
     before: typing.Callable = field(default=core.nop, kw_only=True)
     after: typing.Callable = field(default=core.nop, kw_only=True)
 
-    __annotations__ = {
-        "json_schema": dict,
-        "before": typing.Callable,
-        "after": typing.Callable,
-    }
-
     def __init_subclass__(cls, **kwds):
         raise TypeError("Validator class cannot be inherited")
 
@@ -80,8 +71,6 @@ class Ge(core._Ge):
     """
 
     value: Any
-
-    __annotations__ = {"value": Any}
 
     def json_schema(self) -> dict:
         return {"minimum": self.value}
@@ -99,8 +88,6 @@ class Gt(core._Gt):
 
     value: Any
 
-    __annotations__ = {"value": Any}
-
     def json_schema(self) -> dict:
         return {"minimum": self.value, "exclusiveMinimum": True}
 
@@ -116,8 +103,6 @@ class Le(core._Le):
     """
 
     value: Any
-
-    __annotations__ = {"value": Any}
 
     def json_schema(self) -> dict:
         return {"maximum": self.value}
@@ -135,8 +120,6 @@ class Lt(core._Lt):
 
     value: Any
 
-    __annotations__ = {"value": Any}
-
     def json_schema(self) -> dict:
         return {"maximum": self.value, "exclusiveMaximum": True}
 
@@ -153,8 +136,6 @@ class MinLen(core._MinLen):
 
     value: int
 
-    __annotations__ = {"value": int}
-
     def json_schema(self) -> dict:
         return {"minLength": self.value}
 
@@ -170,8 +151,6 @@ class MaxLen(core._MaxLen):
     """
 
     value: int
-
-    __annotations__ = {"value": int}
 
     def json_schema(self) -> dict:
         return {"maxLength": self.value}
@@ -190,8 +169,6 @@ class Len(core._Len):
     min_value: int
     max_value: int
 
-    __annotations__ = {"min_value": int, "max_value": int}
-
     def json_schema(self) -> dict:
         return {"minLength": self.min_value, "maxLength": self.max_value}
 
@@ -207,8 +184,6 @@ class MinItems(core._MinItems):
     """
 
     value: int
-
-    __annotations__ = {"value": int}
 
     def json_schema(self) -> dict:
         return {"minItems": self.value}
@@ -226,8 +201,6 @@ class MaxItems(core._MaxItems):
 
     value: int
 
-    __annotations__ = {"value": int}
-
     def json_schema(self) -> dict:
         return {"maxItems": self.value}
 
@@ -243,8 +216,6 @@ class Match(ValidatorAfter):
     """
 
     pattern: re.Pattern
-
-    __annotations__ = {"pattern": re.Pattern}
 
     def json_schema(self) -> dict:
         return {"pattern": self.pattern.pattern}
@@ -270,8 +241,6 @@ class ToLower(core._ToLowerA, core._ToLowerB):
 
     mode: Literal["before", "after"] = "after"
 
-    __annotations__ = {"mode": Literal["before", "after"]}
-
 
 @dataclass(slots=True)
 class ToUpper(core._ToUpperA, core._ToUpperB):
@@ -287,8 +256,6 @@ class ToUpper(core._ToUpperA, core._ToUpperB):
     """
 
     mode: Literal["before", "after"] = "after"
-
-    __annotations__ = {"mode": Literal["before", "after"]}
 
 
 @dataclass(slots=True)
@@ -308,8 +275,6 @@ class UrlConstraints(ValidatorAfter):
 
     schemes: list[str] | None = field(default=None, kw_only=True)
     ports: list[int] | None = field(default=None, kw_only=True)
-
-    __annotations__ = {"schemes": list[str] | None, "ports": list[int] | None}
 
     def after(self, value, /):
         if self.schemes is not None and value.scheme not in self.schemes:
@@ -351,8 +316,6 @@ class Strict(ValidatorBefore):
 
     type: Type | NewType
 
-    __annotations__ = {"type": Type | NewType}
-
     def __post_init__(self):
         def fn(tp):
             tps = []
@@ -392,8 +355,6 @@ if emval:
                 deliverable_address=False,
             )
         )
-
-        __annotations__ = {"validator": emval.EmailValidator}
 
         def json_schema(self) -> dict:
             return {"format": "email"}

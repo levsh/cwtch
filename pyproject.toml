@@ -8,8 +8,7 @@ readme = "README.md"
 keywords = []
 packages = [
     { include = "cwtch" },
-    { include = "src/core.pyx" },
-    { include = "src/metadata.pyx" }
+    { include = "src/core.pyx" }
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
