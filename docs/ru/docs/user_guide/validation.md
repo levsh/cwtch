@@ -71,6 +71,8 @@ BOOL_MAP = {
     **cwtch** перхватывает `ValueError` и `TypeError` исключения и оборачивает их в `ValidationError`.
 
 ```python
+from cwtch import dataclass
+
 @dataclass
 class M:
     i: int
@@ -84,12 +86,16 @@ class M:
 
 ### Валидация на основе метадаты
 
-Для валидации поля перед или после **cwtch** можно использовать валидаторы на основе `cwtch.metadata.TypeMetadata`.
+Для валидации поля перед или после **cwtch** можно использовать валидаторы
+на основе `cwtch.metadata.ValidatorBefore` и `cwtch.metadta.ValidatorAfter`.
 
 ```python
-from cwtch.metadata import TypeMetadata
+from typing import Annotated
 
-class CustomValidator(TypeMetadata):
+from cwtch import dataclass
+from cwtch.metadata import ValidatorAfter, ValidatorBefore
+
+class CustomValidatorBefore(ValidatorBefore):
     def before(self, value, /):
         """
         Валидация значения перед валидацией на основании аннотации типа
@@ -97,6 +103,7 @@ class CustomValidator(TypeMetadata):
         print("Before")
         return value
 
+class CustomValidatorAfter(ValidatorAfter):
     def after(self, value, /):
         """
         Валидация значения после валидации на основании аннотации типа
@@ -106,7 +113,8 @@ class CustomValidator(TypeMetadata):
 
 @dataclass
 class M:
-    i: Annotated[int, CustomValidator()]
+    i: Annotated[int, CustomValidatorBefore()]
+    j: Annotated[int, CustomValidatorAfter()]
 ```
 
 
@@ -140,15 +148,23 @@ class M:
 ```python
 >>> M(i=0, items=[0])
 ...
-ValidationError: type[ <class '__main__.M'> ] path[ 'i' ]
-  type[ Annotated[int, Ge(value=1)] ] input_type[ <class 'int'> ] input_value[ 0 ]
+ValidationError: 
+  Type: --> <class '__main__.M'>
+  Path: ['i']
+  ValidationError:
+    Type: <class 'int'> --> Annotated[int, Ge(value=1), Strict(type=[<class 'int'>]), Ge(value=1)]
+    Input: 0
     ValueError: value should be >= 1
 ```
 
 ```python
 >>> M(i=1, items=[])
 ...
-ValidationError: type[ <class '__main__.M'> ] path[ 'items' ]
-  type[ Annotated[list[int], MinItems(value=1)] ] input_type[ <class 'list'> ] input_value[ [] ]
+ValidationError: 
+  Type: --> <class '__main__.M'>
+  Path: ['items']
+  ValidationError:
+    Type: <class 'list'> --> Annotated[list[int], MinItems(value=1)]
+    Input: []
     ValueError: items count should be >= 1
 ```

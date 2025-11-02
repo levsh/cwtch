@@ -14,12 +14,17 @@ assert asdict(d) == {"i": 1}
 В случае необходимости можно изменить поведение, определив метод `__cwtch_asdict__`
 
 ```python
+from typing import Callable
+
+from cwtch import dataclass
+from cwtch.core import AsDictKwds
+
 @dataclass
 class M:
     i: int
 
     def __cwtch_asdict__(self, handler: Callable, kwds: AsDictKwds):
-        return handler()
+        return handler(self, kwds)
 ```
 
 !!! note
@@ -31,10 +36,15 @@ class M:
 Пример для `Secret` типа:
 
 ```python
+from typing import Callable
+
+from cwtch import dataclass
+from cwtch.core import AsDictKwds
+
 class SecretType:
     def get_scret_value(self): ...
 
-    def __cwtch_asdict__(self, handler, kwds: AsDictKwds):
+    def __cwtch_asdict__(self, handler: Callable, kwds: AsDictKwds):
         if (kwds.context or {}).get("show_secrets"):
             return self.get_secret_value()
         return self

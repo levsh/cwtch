@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cwtch"
-version = "0.13.dev"
+version = "0.13.0"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
@@ -48,10 +48,10 @@ mkdocstrings = { extras = ["python"], version = "*" }
 
 [tool.poetry.build]
 generate-setup-file = false
-script = 'build.py'
+script = '_build.py'
 
 [build-system]
-requires = ["poetry-core", "setuptools", "cython"]
+requires = ["poetry-core", "setuptools", "Cython"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.black]
