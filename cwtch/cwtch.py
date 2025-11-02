@@ -29,7 +29,7 @@ from cwtch.config import (
     SLOTS,
     VALIDATE,
 )
-from cwtch.core import _DEFAULT, _MISSING, UNSET, Unset, UnsetType, _Missing, _to_view
+from cwtch.core import _DEFAULT, _MISSING, UNSET, ToView, Unset, UnsetType, _Missing
 from cwtch.core import asdict as _asdict
 from cwtch.core import dumps_json as _dumps_json
 from cwtch.core import get_cache, get_validator, type_adapter, validate_generic_alias, validate_value
@@ -447,12 +447,7 @@ class _ViewDesc:
 
     def __get__(self, obj, owner=None):
         if obj:
-
-            def asview():
-                return _to_view(self.view_cls, obj)
-
-            return asview
-
+            return ToView(self.view_cls, obj)
         return self.view_cls
 
 

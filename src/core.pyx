@@ -1770,7 +1770,7 @@ def register_json_schema_builder(T, builder, force: bool | None = None):
     get_json_schema_builder.cache_clear()
 
 
-def asdict(
+cpdef inline asdict(
     inst,
     include_=None,
     exclude_=None,
@@ -1825,29 +1825,32 @@ def dumps_json(obj, encoder, context, omit_microseconds: bool | None = None) -> 
     return orjson.dumps(obj, default=_encoder, option=option)
 
 
-def __dump(view_name, value):
-    if getattr(value, "__cwtch_model__", None):
-        view = getattr(value, view_name, None)
-        if view:
-            return view()
-        return asdict(value)
-    if isinstance(value, dict):
-        return {k: __dump(view_name, v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return value.__class__(__dump(view_name, v) for v in value)
-    return value
+cdef class ToView:
+    view_cls: object
+    view_name: object
+    data: object
 
+    def __init__(self, view_cls, obj):
+        self.view_cls = view_cls
+        self.view_name = view_cls.__cwtch_view_name__
+        self.data = obj.__dict__
 
-def _to_view(view_cls, obj):
-    view_name = view_cls.__cwtch_view_name__
+    cdef dump(self, value):
+        if getattr(value, "__cwtch_model__", None):
+            view = getattr(value, self.view_name, None)
+            if view:
+                return view()
+            return asdict(value)
+        if isinstance(value, dict):
+            return {k: self.dump(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return value.__class__(self.dump(v) for v in value)
+        return value
 
-    __dict__ = obj.__dict__
-
-    return view_cls(
-        **{
-            k: __dump(view_name, __dict__[k])
-            for k in view_cls.__dataclass_fields__
-            if k in __dict__
-            # for k in set(view_cls.__dataclass_fields__) & set(obj.__cwtch_fields_set__)
+    def __call__(self):
+        kwds = {
+            k: self.dump(self.data[k])
+            for k in self.view_cls.__dataclass_fields__
+            if k in self.data
         }
-    )
+        return PyObject_Call(self.view_cls, empty_args, kwds)

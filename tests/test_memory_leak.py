@@ -59,7 +59,6 @@ data = {
 data["sub"] = [data for _ in range(10)]
 
 
-@pytest.mark.skip
 def test_memory_leak():
     p = psutil.Process()
 
