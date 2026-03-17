@@ -5,6 +5,9 @@ import pytest
 from .models import *
 
 
+pytestmark = pytest.mark.slow
+
+
 RANGE = 1000
 
 

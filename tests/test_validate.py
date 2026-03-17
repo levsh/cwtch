@@ -1,9 +1,11 @@
 import re
+import sys
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, NewType, Set, Tuple, Type, TypeVar, Union
+from pathlib import Path
+from typing import Annotated, Any, Callable, Dict, List, Literal, NewType, Set, Tuple, Type, TypeVar, Union
 
 import pytest
 
@@ -16,12 +18,16 @@ from cwtch.types import UNSET, UnsetType
 class TestValidateValue:
     def test_none(self):
         assert validate_value(None, None) is None
+
+    def test_none_negative(self):
         for value in (0, 0.0, 1000, ..., "a", True, False, UNSET, object(), (), [], {}, int):
             with pytest.raises(ValidationError, match=re.escape("ValueError: value is not a None")):
                 validate_value(value, None)
 
     def test_unset(self):
         assert validate_value(UNSET, UnsetType) is UNSET
+
+    def test_unset_negative(self):
         for value in (0, 0.0, 1000, ..., "a", True, False, None, object(), (), [], {}, int):
             with pytest.raises(
                 ValidationError, match=re.escape("ValueError: value is not a valid <class 'cwtch.core.UnsetType'>")
@@ -34,6 +40,7 @@ class TestValidateValue:
         for value in (0, "0", "false", "False", "FALSE", "n", "N", "f", "no", "No", "NO"):
             assert validate_value(value, bool) is False
 
+    def test_bool_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -90,6 +97,8 @@ class TestValidateValue:
         assert validate_value("1", int) == 1
         assert validate_value(True, int) == 1
         assert validate_value(False, int) == 0
+
+    def test_int_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -122,6 +131,8 @@ class TestValidateValue:
         assert validate_value("1.1", float) == 1.1
         assert validate_value(True, float) == 1.0
         assert validate_value(False, float) == 0.0
+
+    def test_float_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -149,6 +160,8 @@ class TestValidateValue:
 
     def test_str(self):
         assert validate_value("a", str) == "a"
+
+    def test_str_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -205,6 +218,8 @@ class TestValidateValue:
         assert validate_value(1, bytes) == b"\x00"
         assert validate_value(False, bytes) == b""
         assert validate_value(True, bytes) == b"\x00"
+
+    def test_bytes_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -221,6 +236,8 @@ class TestValidateValue:
     def test_date(self):
         assert validate_value("2023-01-01", date) == date(2023, 1, 1)
         assert validate_value(date(2023, 1, 1), date) == date(2023, 1, 1)
+
+    def test_data_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -243,6 +260,8 @@ class TestValidateValue:
             datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc),
             datetime,
         ) == datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc)
+
+    def test_datetime_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -259,6 +278,8 @@ class TestValidateValue:
     def test_literal(self):
         validate_value("A", Literal["A", "B"])
         validate_value("B", Literal["A", "B"])
+
+    def test_literal_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -274,24 +295,14 @@ class TestValidateValue:
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                (
-                    "\n"
-                    "  Type: <class 'int'> --> Literal['1']\n"
-                    "  Input: 1\n"
-                    "  ValueError: value is not a one of ['1']"
-                )
+                ("\n  Type: <class 'int'> --> Literal['1']\n  Input: 1\n  ValueError: value is not a one of ['1']")
             ),
         ):
             validate_value(1, Literal["1"])
         with pytest.raises(
             ValidationError,
             match=re.escape(
-                (
-                    "\n"
-                    "  Type: <class 'str'> --> Literal[1]\n"
-                    "  Input: '1'\n"
-                    "  ValueError: value is not a one of [1]"
-                )
+                ("\n  Type: <class 'str'> --> Literal[1]\n  Input: '1'\n  ValueError: value is not a one of [1]")
             ),
         ):
             validate_value("1", Literal[1])
@@ -302,6 +313,11 @@ class TestValidateValue:
 
         assert isinstance(validate_value("a", E), E)
         assert validate_value("a", E) == E.A
+
+    def test_enum_negative(self):
+        class E(str, Enum):
+            A = "a"
+
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -309,7 +325,7 @@ class TestValidateValue:
                     "\n"
                     "  Type: <class 'int'> --> <enum 'E'>\n"
                     "  Input: 1\n"
-                    "  ValueError: 1 is not a valid TestValidateValue.test_enum.<locals>.E"
+                    "  ValueError: 1 is not a valid TestValidateValue.test_enum_negative.<locals>.E"
                 )
             ),
         ):
@@ -336,6 +352,7 @@ class TestValidateValue:
             assert validate_value([["0"], ("y",)], T[T[bool]]) == [[False], [True]]
             assert validate_value((["0"], ("y",)), T[T[bool]]) == [[False], [True]]
 
+    def test_list_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -429,6 +446,7 @@ class TestValidateValue:
             assert validate_value(tuple(range(100)), T[int, ...]) == tuple(range(100))
             assert validate_value(list(range(100)), T[int, ...]) == tuple(range(100))
 
+    def test_tuple_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -514,6 +532,7 @@ class TestValidateValue:
             assert validate_value([{"0"}, {"1"}], T[tuple[int]]) == {(0,), (1,)}
             assert validate_value([["0"], ["1"]], T[tuple[int]]) == {(0,), (1,)}
 
+    def test_set_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -559,6 +578,7 @@ class TestValidateValue:
             assert validate_value({"k": "v"}, T[str, str]) == {"k": "v"}
             assert validate_value({"0": "1"}, T[int, int]) == {0: 1}
 
+    def test_mapping_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -627,6 +647,8 @@ class TestValidateValue:
         assert validate_value([1], Iterable[int]) == [1]
         assert validate_value([1], Sequence) == [1]
         assert validate_value([1], Sequence[int]) == [1]
+
+    def test_abcmeta_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -652,14 +674,25 @@ class TestValidateValue:
 
         assert validate_value(A, Type[A]) == A
         assert validate_value(B, Type[A]) == B
+
+    def test_type_negative(self):
+        class A:
+            pass
+
+        class B(A):
+            pass
+
+        class C:
+            pass
+
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
                     "\n"
-                    "  Type: <class 'type'> --> Type[test_validate.TestValidateValue.test_type.<locals>.A]\n"
-                    "  Input: <class 'test_validate.TestValidateValue.test_type.<locals>.C'>\n"
-                    "  ValueError: invalid value for type[test_validate.TestValidateValue.test_type.<locals>.A]"
+                    "  Type: <class 'type'> --> Type[test_validate.TestValidateValue.test_type_negative.<locals>.A]\n"
+                    "  Input: <class 'test_validate.TestValidateValue.test_type_negative.<locals>.C'>\n"
+                    "  ValueError: invalid value for type[test_validate.TestValidateValue.test_type_negative.<locals>.A]"
                 )
             ),
         ):
@@ -674,12 +707,43 @@ class TestValidateValue:
         assert validate_value("1", Union[str, float]) == "1"
         assert validate_value(1, float | str) == 1.0
         assert validate_value(1, Union[float | str]) == 1.0
+        T = Annotated[int | float, Ge(1)]
+        assert validate_value("a", T | str) == "a"
+        assert validate_value("a", Union[T, str]) == "a"
+        assert validate_value(1, int | Any) == 1
+        assert validate_value(1, Union[int, Any]) == 1
+        assert validate_value("1", int | Any) == "1"
+        assert validate_value("1", Union[int, Any]) == "1"
+
+        T = Annotated[int, None] | str
+        assert validate_value("1", T) == "1"
+        T = Annotated[str, None] | int
+        assert validate_value(1, T) == 1
+
+        assert validate_value([1], list[int] | list[str]) == [1]
+        assert validate_value(["a"], list[int] | list[str]) == ["a"]
+
+    def test_union_negative(self):
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
                     "\n"
                     "  Type: <class 'str'> --> Union[int, float]\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'float'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: could not convert string to float: 'a'"
+                )
+                if sys.version_info.minor < 14
+                else (
+                    "\n"
+                    "  Type: <class 'str'> --> int | float\n"
                     "  Input: 'a'\n"
                     "  ValidationError:\n"
                     "    Type: <class 'str'> --> <class 'int'>\n"
@@ -709,19 +773,52 @@ class TestValidateValue:
                     "    Input: 'a'\n"
                     "    ValueError: could not convert string to float: 'a'"
                 )
+                if sys.version_info.minor < 14
+                else (
+                    "\n"
+                    "  Type: <class 'str'> --> int | float\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'int'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: invalid literal for int() with base 10: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'float'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: could not convert string to float: 'a'"
+                )
             ),
         ):
             assert validate_value("a", Union[int, float]) == "a"
 
         T = Annotated[int | float, Ge(1)]
-        assert validate_value("a", T | str) == "a"
-        assert validate_value("a", Union[T, str]) == "a"
         with pytest.raises(
             ValidationError,
             match=re.escape(
                 (
                     "\n"
                     "  Type: <class 'str'> --> Union[Annotated[int | float, Ge(value=1)], bool]\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> int | float\n"
+                    "    Input: 'a'\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'a'\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'float'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: could not convert string to float: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'bool'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: could not convert value to bool"
+                )
+                if sys.version_info.minor < 14
+                else (
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[int | float, Ge(value=1)] | bool\n"
                     "  Input: 'a'\n"
                     "  ValidationError:\n"
                     "    Type: <class 'str'> --> int | float\n"
@@ -765,38 +862,52 @@ class TestValidateValue:
                     "    Input: 'a'\n"
                     "    ValueError: could not convert value to bool"
                 )
+                if sys.version_info.minor < 14
+                else (
+                    "\n"
+                    "  Type: <class 'str'> --> Annotated[int | float, Ge(value=1)] | bool\n"
+                    "  Input: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> int | float\n"
+                    "    Input: 'a'\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'a'\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'float'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: could not convert string to float: 'a'\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'str'> --> <class 'bool'>\n"
+                    "    Input: 'a'\n"
+                    "    ValueError: could not convert value to bool"
+                )
             ),
         ):
             assert validate_value("a", Union[T, bool]) == "a"
 
-        assert validate_value(1, int | Any) == 1
-        assert validate_value(1, Union[int, Any]) == 1
-        assert validate_value("1", int | Any) == "1"
-        assert validate_value("1", Union[int, Any]) == "1"
-
-        T = Annotated[int, None] | str
-        assert validate_value("1", T) == "1"
-        T = Annotated[str, None] | int
-        assert validate_value(1, T) == 1
-
-        assert validate_value([1], list[int] | list[str]) == [1]
-        assert validate_value(["a"], list[int] | list[str]) == ["a"]
-
     def test_validate_type_var(self):
         T = TypeVar("T")
-
         TT = list[T]
-
         assert validate_value(["1"], TT[int]) == [1]
+
+    def test_validate_type_var_negative(self):
+        T = TypeVar("T")
+        TT = list[T]
         with pytest.raises(ValidationError):
             assert validate_value(["a"], TT[int])
 
     def test_validate_new_type(self):
         Int = NewType("Int", int)
         validate_value(1, Int)
-
         Number = NewType("Number", int | float)
         validate_value(1, Number)
+
+    def test_validate_new_type_negative(self):
+        Int = NewType("Int", int)
+        validate_value(1, Int)
+        Number = NewType("Number", int | float)
         with pytest.raises(
             ValidationError,
             match=re.escape(
@@ -816,3 +927,41 @@ class TestValidateValue:
             ),
         ):
             validate_value("a", Number)
+
+    def test_validate_path(self):
+        assert validate_value("/tmp", Path) == Path("/tmp")
+
+    def test_validate_path_negative(self):
+        with pytest.raises(
+            ValidationError,
+            match=re.escape(
+                (
+                    "\n"
+                    "  Type: <class 'NoneType'> --> <class 'pathlib.Path'>\n"
+                    "  Input: None\n"
+                    "  ValueError: invalid value for <class 'pathlib.Path'>"
+                )
+                if sys.version_info.minor != 13
+                else (
+                    "\n"
+                    "  Type: <class 'NoneType'> --> <class 'pathlib._local.Path'>\n"
+                    "  Input: None\n"
+                    "  ValueError: invalid value for <class 'pathlib._local.Path'>"
+                )
+            ),
+        ):
+            validate_value(None, Path)
+
+    def test_validate_callable(self):
+
+        def my_func():
+            pass
+
+        assert validate_value(my_func, Callable) is my_func
+        assert validate_value(lambda x: x, Callable) is not None
+        assert validate_value(print, Callable) is print
+
+    def test_validate_callable_negative(self):
+        for value in (1, "a", None, [], {}, object()):
+            with pytest.raises(ValidationError, match="not callable"):
+                validate_value(value, Callable)

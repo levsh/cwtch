@@ -1,25 +1,25 @@
 from typing import Literal
 
 
-SHOW_INPUT_VALUE_ON_ERROR: bool = True
-"""Show input value on ValidationError."""
-
 SLOTS: bool = False
 """Default value for 'slots' argument in dataclass decorator."""
 
 KW_ONLY: bool = False
-"""Default value for 'kw_only' argument in dataclass diecorator."""
+"""Default value for 'kw_only' argument in dataclass decorator."""
 
 VALIDATE: bool = True
 """Default value for 'validate' argument in dataclass decorator."""
 
 RAISE_ON_FIRST_ERROR: bool = True
-"""Raise ValidationError on fist validation error. """
+"""Raise ValidationError on first validation error. """
 
 ADD_DISABLE_VALIDATION_TO_INIT: bool = False
 """Default value for 'add_disable_validation_to_init' argument in dataclass decorator."""
 
-EXTRA: Literal["ignore", "forbid"] = "ignore"
+SHOW_INPUT_VALUE_ON_ERROR: bool = True
+"""Show input value on ValidationError."""
+
+EXTRA: Literal["ignore", "forbid"] = "forbid"
 """Default value for 'extra' argument in dataclass decorator."""
 
 REPR: bool = True
@@ -27,9 +27,6 @@ REPR: bool = True
 
 EQ: bool = True
 """Default value for 'eq' argument in dataclass decorator."""
-
-HANDLE_CIRCULAR_REFS: bool = False
-"""Default value for 'handle_circular_refs' argument in dataclass decorator."""
 
 ATTACH: bool = True
 """Default value for 'attach' argument in view decorator."""

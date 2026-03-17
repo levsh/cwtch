@@ -4,12 +4,12 @@ import typing
 
 from functools import lru_cache
 from ipaddress import ip_address
-from typing import TYPE_CHECKING, Annotated, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Annotated, Generic, TypeVar, Union
 from urllib.parse import ParseResult, urlparse
 
 from cwtch import metadata
 from cwtch.core import UNSET, AsDictKwds, Unset, UnsetType  # noqa
-from cwtch.metadata import Ge, MinItems, MinLen
+from cwtch.metadata import Ge, Le, Lt, MinItems, MinLen
 from cwtch.metadata import Strict as StrictMetadata
 from cwtch.metadata import ToLower, ToUpper, UrlConstraints
 
@@ -41,7 +41,6 @@ __all__ = (
 
 T = TypeVar("T")
 
-
 Number = int | float
 """
 Number type.
@@ -60,6 +59,15 @@ Example:
     n: Positive[Number] = 1.1
 """
 
+Negative = Annotated[T, Lt(0)]
+"""
+Negative type(Generic).
+Example:
+
+    i: Negative[int] = -1
+    n: Negative[Number] = 1.1
+"""
+
 NonNegative = Annotated[T, Ge(0)]
 """
 Non negative type(Generic).
@@ -67,6 +75,15 @@ Example:
 
     i: NonNegative[int] = 0
     n: NonNegative[Number] = 0.0
+"""
+
+NonPositive = Annotated[T, Le(0)]
+"""
+Non positive type(Generic).
+Example:
+
+    i: NonPositive[int] = 0
+    n: NonPositive[Number] = 0.0
 """
 
 NonEmpty = Annotated[T, MinItems(1)]
@@ -98,7 +115,7 @@ UpperStr = Annotated[str, ToUpper()]
 Upper case string.
 Example:
 
-    s: LowerStr = "A"
+    s: UpperStr = "A"
 """
 
 
@@ -230,7 +247,7 @@ class SecretStr(str):
 
 @lru_cache
 def _validate_hostname(hostname: str):
-    if 1 > len(hostname) > 255:
+    if not (1 <= len(hostname) <= 255):
         raise ValueError("invalid hostname length")
     splitted = hostname.split(".")
     if (last := splitted[-1]) and last[0].isdigit():
@@ -246,35 +263,35 @@ class _UrlMixIn:
         _parsed: ParseResult
 
     @property
-    def scheme(self) -> Optional[str]:
+    def scheme(self) -> str | None:
         return self._parsed.scheme
 
     @property
-    def username(self) -> Optional[str]:
+    def username(self) -> str | None:
         return self._parsed.username
 
     @property
-    def password(self) -> Optional[str]:
+    def password(self) -> str | None:
         return self._parsed.password
 
     @property
-    def hostname(self) -> Optional[str]:
+    def hostname(self) -> str | None:
         return self._parsed.hostname
 
     @property
-    def port(self) -> Optional[int]:
+    def port(self) -> int | None:
         return self._parsed.port
 
     @property
-    def path(self) -> Optional[str]:
+    def path(self) -> str | None:
         return self._parsed.path
 
     @property
-    def query(self) -> Optional[str]:
+    def query(self) -> str | None:
         return self._parsed.query
 
     @property
-    def fragment(self) -> Optional[str]:
+    def fragment(self) -> str | None:
         return self._parsed.fragment
 
 
@@ -371,11 +388,11 @@ class SecretUrl(str, _UrlMixIn):
         return len(self._value)
 
     @property
-    def username(self) -> Optional[str]:
+    def username(self) -> str | None:
         return "***" if self._parsed.username else None
 
     @property
-    def password(self) -> Optional[str]:
+    def password(self) -> str | None:
         return "***" if self._parsed.password else None
 
     @classmethod

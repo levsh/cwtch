@@ -3,6 +3,9 @@ import pytest
 from cwtch import dataclass, view
 
 
+pytestmark = pytest.mark.slow
+
+
 @dataclass
 class Sub:
     i: int

@@ -3,7 +3,7 @@ import datetime
 from typing import ClassVar
 from uuid import UUID
 
-from cwtch import asdict, dataclass, dumps_json, field
+from cwtch import asdict, dataclass, asjson, field
 from cwtch.types import SecretStr, SecretUrl, Url
 
 
@@ -15,7 +15,7 @@ class TestDumps:
             s: str
             b: bool
 
-        assert dumps_json(M(i=0, s="a", b=True)) == b'{"i":0,"s":"a","b":true}'
+        assert asjson(M(i=0, s="a", b=True)) == b'{"i":0,"s":"a","b":true}'
 
     def test_types(self):
         @dataclass
@@ -25,7 +25,7 @@ class TestDumps:
             secret_str: SecretStr
 
         assert (
-            dumps_json(
+            asjson(
                 M(
                     url="http://example.com",
                     secret_url="http://user:pass@secret.com",
@@ -36,7 +36,7 @@ class TestDumps:
         )
 
         assert (
-            dumps_json(
+            asjson(
                 M(
                     url="http://example.com",
                     secret_url="http://user:pass@secret.com",
@@ -71,7 +71,7 @@ class TestDumps:
         )
 
         assert (
-            dumps_json(m)
+            asjson(m)
             == b'{"id":"7f799175-bdcf-4d61-95b8-238746c0017f","date":"1970-01-01","datetime":"1970-01-01T00:00:00","time":"00:00:00"}'
         )
 
@@ -80,8 +80,8 @@ class TestDumps:
         class M:
             in_: str = field(init_alias="in", asdict_alias="in")
 
-        assert dumps_json(M(**{"in": "a"})) == b'{"in_":"a"}'
-        assert dumps_json(asdict(M(**{"in": "a"}))) == b'{"in":"a"}'
+        assert asjson(M(**{"in": "a"})) == b'{"in_":"a"}'
+        assert asjson(asdict(M(**{"in": "a"}))) == b'{"in":"a"}'
 
     def test_cwtch_asjson(self):
         class CustomUUID(UUID):
@@ -114,7 +114,7 @@ class TestDumps:
             CustomTime(0, 0),
         )
 
-        assert dumps_json(m) == b'{"id":"uuid","date":"date","datetime":"datetime","time":"time"}'
+        assert asjson(m) == b'{"id":"uuid","date":"date","datetime":"datetime","time":"time"}'
 
     def test_classvar(self):
         @dataclass
@@ -122,4 +122,4 @@ class TestDumps:
             i: int = 0
             var: ClassVar[int] = 1
 
-        assert dumps_json(M()) == b'{"i":0}'
+        assert asjson(M()) == b'{"i":0}'

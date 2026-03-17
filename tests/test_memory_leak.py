@@ -6,6 +6,9 @@ import pytest
 from cwtch import dataclass, field
 
 
+pytestmark = pytest.mark.slow
+
+
 @dataclass(extra="ignore")
 class CC:
     li1: list[int] = field()

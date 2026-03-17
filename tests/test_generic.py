@@ -7,7 +7,116 @@ import pytest
 from cwtch import ValidationError, clone, dataclass, field, validate_value, view
 
 
+T = TypeVar("T")
+F = TypeVar("F")
+
+
+class TestGenericBasic:
+    def test_simple_generic_model(self):
+        @dataclass
+        class Container(Generic[T]):
+            value: T
+
+        assert Container[int]
+        assert Container[str]
+
+    def test_generic_with_int(self):
+        @dataclass
+        class Box(Generic[T]):
+            content: T
+
+        box = Box[int](content="42")
+        assert box.content == 42
+
+        with pytest.raises(ValidationError):
+            Box[int](content="a")
+
+    def test_generic_with_str(self):
+        @dataclass
+        class Box(Generic[T]):
+            content: T
+
+        box = Box[str](content="hello")
+        assert box.content == "hello"
+
+        with pytest.raises(ValidationError):
+            Box[str](content=1)
+
+    def test_generic_type_caching(self):
+        @dataclass
+        class Container(Generic[T]):
+            value: T
+
+        assert id(Container[int]) == id(Container[int])
+        assert id(Container[str]) == id(Container[str])
+        assert id(Container[int]) != id(Container[str])
+
+
+class TestGenericWithMultipleParams:
+    def test_two_type_params(self):
+        @dataclass
+        class Pair(Generic[T, F]):
+            first: T
+            second: F
+
+        pair = Pair[int, str](first="1", second="hello")
+        assert pair.first == 1
+        assert pair.second == "hello"
+
+        with pytest.raises(ValidationError):
+            Pair[int, str](first="a", second="hello")
+        with pytest.raises(ValidationError):
+            Pair[int, str](first=1, second=2)
+
+
 class TestGeneric:
+    def test_generic(self):
+        @dataclass
+        class C(Generic[T]):
+            x: list[T]
+
+        assert validate_value({"x": ["1"]}, C[int]).x == [1]
+        assert C[int](x=["1"]).x == [1]
+
+        with pytest.raises(
+            ValidationError,
+            match=re.escape(
+                (
+                    "  Type: <class 'dict'> --> <class 'cwtch.cwtch.C[int]'>\n"
+                    "  Input: {'x': ['a']}\n"
+                    "  Path: ['x', 0]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'list'> --> list[int]\n"
+                    "    Input: ['a']\n"
+                    "    Path: [0]\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'a'"
+                )
+            ),
+        ):
+            validate_value({"x": ["a"]}, C[int])
+
+        with pytest.raises(
+            ValidationError,
+            match=re.escape(
+                (
+                    "  Type: <class 'cwtch.cwtch.C[int]'>\n"
+                    "  Path: ['x', 0]\n"
+                    "  ValidationError:\n"
+                    "    Type: <class 'list'> --> list[int]\n"
+                    "    Input: ['a']\n"
+                    "    Path: [0]\n"
+                    "    ValidationError:\n"
+                    "      Type: <class 'str'> --> <class 'int'>\n"
+                    "      Input: 'a'\n"
+                    "      ValueError: invalid literal for int() with base 10: 'a'"
+                )
+            ),
+        ):
+            C[int](x=["a"])
+
     def test_model(self):
         T = TypeVar("T")
 
@@ -59,7 +168,7 @@ class TestGeneric:
             match=re.escape(
                 (
                     "\n"
-                    "  Type: --> <class 'cwtch.cwtch.M[int]'>\n"
+                    "  Type: <class 'cwtch.cwtch.M[int]'>\n"
                     "  Path: ['l', 0]\n"
                     "  ValidationError:\n"
                     "    Type: <class 'list'> --> list[int]\n"

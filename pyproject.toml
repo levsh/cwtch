@@ -1,22 +1,31 @@
 [tool.poetry]
 name = "cwtch"
-version = "0.13.0"
+version = "0.14.0.dev1"
 description = ""
 authors = ["Roman Koshel <roma.koshel@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-keywords = []
+maintainers = [
+  "Roman Koshel <roma.koshel@gmail.com>"
+]
+keywords = [
+  "dataclass",
+  "validation",
+  "serialization",
+  "JSON",
+  "schema",
+]
 packages = [
-    { include = "cwtch" },
-    { include = "src/core.pyx" }
+  { include = "cwtch" },
+  { include = "src/core.pyx" }
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3 :: Only",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Utilities",
-    "License :: OSI Approved :: MIT License",
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities",
+  "License :: OSI Approved :: MIT License",
 ]
 include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 
@@ -24,6 +33,7 @@ include = [{ path = "cwtch/**/*.so", format = "wheel" }]
 python = ">=3.11, <4.0"
 orjson = "*"
 rich = "*"
+typing_extensions = "*"
 
 [tool.poetry.group.test.dependencies]
 attrs = "*"

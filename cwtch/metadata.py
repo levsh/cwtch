@@ -321,7 +321,7 @@ class Strict(ValidatorBefore):
             tps = []
             if __args__ := getattr(tp, "__args__", None):
                 if tp.__class__ not in [types.UnionType, typing._UnionGenericAlias]:  # type: ignore
-                    raise ValueError(f"{self.type} is unsupported by {self.__class__}")
+                    raise ValueError(f"{tp} is not valid {self.type}")
                 for arg in __args__:
                     tps.extend(fn(arg))
             else:

@@ -41,7 +41,7 @@ class D:
     subd: dict[str, DD]
 
 
-@cwtch.dataclass
+@cwtch.dataclass(slots=True)
 class CC:
     li: list[int]
     lf: list[float]
@@ -51,7 +51,7 @@ class CC:
     d2: dict[str, int]
 
 
-@cwtch.dataclass
+@cwtch.dataclass(slots=True)
 class C:
     i1: int
     i2: int

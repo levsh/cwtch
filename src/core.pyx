@@ -2,7 +2,6 @@
 # cython: profile=False
 # distutils: language=c
 
-import functools
 import types
 import typing
 
@@ -14,12 +13,14 @@ from collections.abc import Mapping
 from contextvars import ContextVar
 from enum import Enum, EnumType
 from inspect import _ParameterKind, isclass, signature
-from itertools import chain
+from pathlib import Path
 from types import UnionType, WrapperDescriptorType
 from typing import (
     Any,
+    Callable,
     Generic,
     GenericAlias,
+    Hashable,
     NewType,
     Type,
     TypeVar,
@@ -27,6 +28,7 @@ from typing import (
     _AnnotatedAlias,
     _AnyMeta,
     _CallableType,
+    _CallableGenericAlias,
     _GenericAlias,
     _LiteralGenericAlias,
     _SpecialGenericAlias,
@@ -40,8 +42,8 @@ import orjson
 
 from typing_extensions import Doc
 
-from . import utils
-from .errors import ValidationError
+from .utils import make_type_with_args
+from .errors import MissingValidatorError, ValidationError
 
 from cpython.list cimport PyList_New, PyList_SET_ITEM
 from cpython.object cimport PyObject_Call
@@ -63,11 +65,23 @@ __all__ = (
 T = TypeVar("T")
 
 
+object_getattribute = cython.declare(cython.object, object.__getattribute__)
+
+datetime_datetime = cython.declare(cython.object, datetime.datetime)
+datetime_date = cython.declare(cython.object, datetime.date)
+datetime_time = cython.declare(cython.object, datetime.time)
+
+datetime_fromisoformat = cython.declare(cython.object, datetime_datetime.fromisoformat)
+date_fromisoformat = cython.declare(cython.object, datetime_date.fromisoformat)
+
+
 _CACHE = cython.declare(cython.object, ContextVar("cache", default={}))
 _CACHE_get = cython.declare(cython.object, _CACHE.get)
 
 
-def get_cache():
+def _get_cache():
+    """Get cache."""
+
     return _CACHE.get()
 
 
@@ -108,17 +122,9 @@ BOOL_MAP = cython.declare(
 )
 
 
-datetime_datetime = cython.declare(cython.object, datetime.datetime)
-datetime_date = cython.declare(cython.object, datetime.date)
-datetime_time = cython.declare(cython.object, datetime.time)
-
-datetime_fromisoformat = cython.declare(cython.object, datetime_datetime.fromisoformat)
-date_fromisoformat = cython.declare(cython.object, datetime_date.fromisoformat)
-
-
 class _MissingType:
-    """
-    Type to mark value as missing.
+    """Type to mark value as missing.
+
     Internal use only.
     """
 
@@ -144,8 +150,8 @@ _Missing = T | _MissingType
 
 
 class _DefaultType:
-    """
-    Type to mark value has `default` or `default factory`.
+    """Type to mark value has `default` or `default factory`.
+
     Internal use only.
     """
 
@@ -197,10 +203,22 @@ Unset = T | UnsetType
 UNSET = UnsetType()
 
 
-AsDictKwds = namedtuple("AsDictKwds", ("include", "exclude", "exclude_none", "exclude_unset", "context"))
+AsDictKwds = namedtuple(
+    "AsDictKwds",
+    (
+        "include",
+        "exclude",
+        "exclude_none",
+        "exclude_unset",
+        "exclude_computed_fields",
+        "context",
+    ),
+)
 
 
 def _check_cwtch_asjson_signature(fn):
+    """Check __cwthc_asjson__ method signature."""
+
     sig = signature(fn)
     if len(sig.parameters) < 2:
         raise TypeError("invalid signature for __cwtch_asjson__ method")
@@ -268,13 +286,39 @@ class TypeWrapperMeta(type):
 
 
 class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
-    """Class to wrap any type for adding __cwtch_asdict__, __cwtch_asjson__ or __cwtch_json_schema__ methods."""
+    """Wrapper class for adding custom serialization and validation methods to types.
+
+    This class wraps any type and proxies attribute access to the wrapped object,
+    while allowing custom methods like `__cwtch_asjson__`, `__cwtch_asdict__`, and
+    `__cwtch_json_schema__` to be added for enhanced serialization behavior.
+
+    TypeWrapper is used as a generic subclass to wrap existing types with custom
+    serialization behavior. The wrapped type remains a subclass of the original
+    type, allowing it to pass type validation.
+
+    Args:
+        o: The object to wrap.
+
+    Example:
+        >>> import datetime
+        >>> class DateTime(TypeWrapper[datetime.datetime]):
+        ...     def __cwtch_asjson__(self, **kwds):
+        ...         return "CUSTOM_DATE"
+        ...     @classmethod
+        ...     def __cwtch_json_schema__(cls, **kwds):
+        ...         return {"type": "string", "format": "date-time"}
+        ...
+        >>> dt = DateTime(datetime.datetime(1970, 1, 1))
+        >>> isinstance(dt, datetime.datetime)
+        True
+        >>> dt.__cwtch_asjson__()
+        'CUSTOM_DATE'
+    """
 
     def __init__(self, o):
         object.__setattr__(self, "_cwtch_o", o)
 
     def __getattribute__(self, name):
-        object_getattribute = object.__getattribute__
         if name in object_getattribute(self, "__dict__"):
             return object_getattribute(self, name)
         if name in object_getattribute(self, "__class__").__dict__:
@@ -282,13 +326,13 @@ class TypeWrapper(Generic[T], metaclass=TypeWrapperMeta):
         return getattr(object_getattribute(self, "_cwtch_o"), name)
 
     def __call__(self, *args, **kwds):
-        return object.__getattribute__(self, "_cwtch_o")(*args, **kwds)
+        return object_getattribute(self, "_cwtch_o")(*args, **kwds)
 
     def __eq__(self, *args, **kwds):
-        return object.__getattribute__(self, "_cwtch_o").__eq__(*args, **kwds)
+        return object_getattribute(self, "_cwtch_o").__eq__(*args, **kwds)
 
     def __ne__(self, *args, **kwds):
-        return object.__getattribute__(self, "_cwtch_o").__ne__(*args, **kwds)
+        return object_getattribute(self, "_cwtch_o").__ne__(*args, **kwds)
 
 
 @cython.cclass
@@ -406,7 +450,7 @@ class _Len(ValidatorAfter):
         if len(value) < self.min_value:
             raise ValueError(f"value length should be >= {self.min_value}")
         if len(value) > self.max_value:
-            raise ValueError(f"value length should be  {self.max_value}")
+            raise ValueError(f"value length should be <= {self.max_value}")
         return value
 
     @cython.ccall
@@ -498,7 +542,7 @@ class _ToUpperA(ValidatorAfter):
         return self.c_after(value)
 
 
-def type_adapter(T):
+def update_metadata(T):
     if hasattr(T, "__metadata__"):
         before, after = [], []
         for x in T.__metadata__:
@@ -511,7 +555,7 @@ def type_adapter(T):
         t = getattr(T, "__origin__", T)
         if t.__class__ == UnionType:
             t = Union
-        T = utils.make_type_with_args(t, [type_adapter(arg) for arg in T.__args__])
+        T = make_type_with_args(t, [update_metadata(arg) for arg in T.__args__])
 
     return T
 
@@ -528,8 +572,9 @@ def asdict_handler(inst, kwds):
 
     exclude_unset = kwds.exclude_unset
     exclude_none = kwds.exclude_none
+    exclude_computed_fields = kwds.exclude_computed_fields
 
-    if exclude_unset or exclude_none:
+    if exclude_unset or exclude_none or exclude_computed_fields:
         for k in keys:
             v = getattr(inst, k, None)
             if exclude_unset and v is UNSET:
@@ -537,7 +582,10 @@ def asdict_handler(inst, kwds):
             if exclude_none and v is None:
                 continue
             if k in fields:
-                field_alias = fields[k].asdict_alias
+                f = fields[k]
+                if exclude_computed_fields and f.computed_field:
+                    continue
+                field_alias = f.asdict_alias
                 if field_alias is not UNSET:
                     k = field_alias
             if isinstance(v, (int, str, float, bool)) and getattr(v, "__cwtch_asjson__", None) is None:
@@ -564,7 +612,10 @@ def asdict_handler(inst, kwds):
         for k in keys:
             v = getattr(inst, k, None)
             if k in fields:
-                field_alias = fields[k].asdict_alias
+                f = fields[k]
+                if exclude_computed_fields and f.computed_field:
+                    continue
+                field_alias = f.asdict_alias
                 if field_alias is not UNSET:
                     k = field_alias
             if isinstance(v, (int, str, float, bool)) and getattr(v, "__cwtch_asjson__", None) is None:
@@ -596,7 +647,7 @@ def _asdict_handler(inst, kwds):
 @cython.inline
 @cython.ccall
 def _asdictkwds(kwds):
-    return AsDictKwds(UNSET, UNSET, kwds[2], kwds[3], kwds[4])
+    return AsDictKwds(UNSET, UNSET, kwds[2], kwds[3], kwds[4], kwds[5])
 
 
 def asdict_root_handler(inst, kwds):
@@ -628,10 +679,11 @@ def asdict_root_handler(inst, kwds):
 
     exclude_unset = kwds.exclude_unset
     exclude_none = kwds.exclude_none
+    exclude_computed_fields = kwds.exclude_computed_fields
 
     if exclude_unset or exclude_none:
         for k in keys:
-            if use_inc_cond and not k in inc:
+            if use_inc_cond and k not in inc:
                 continue
             if use_exc_cond and k in exc:
                 continue
@@ -642,7 +694,10 @@ def asdict_root_handler(inst, kwds):
                 continue
             if is_cwtch_model:
                 if k in fields:
-                    field_alias = fields[k].asdict_alias
+                    f = fields[k]
+                    if exclude_computed_fields and f.computed_field:
+                        continue
+                    field_alias = f.asdict_alias
                     if field_alias is not UNSET:
                         k = field_alias
             if isinstance(v, (int, str, float, bool)) and getattr(v, "__cwtch_asjson__", None) is None:
@@ -673,14 +728,17 @@ def asdict_root_handler(inst, kwds):
                 data[k] = v
     else:
         for k in keys:
-            if use_inc_cond and not k in inc:
+            if use_inc_cond and k not in inc:
                 continue
             if use_exc_cond and k in exc:
                 continue
             v = getattr(inst, k, None)
             if is_cwtch_model:
                 if k in fields:
-                    field_alias = fields[k].asdict_alias
+                    f = fields[k]
+                    if exclude_computed_fields and f.computed_field:
+                        continue
+                    field_alias = f.asdict_alias
                     if field_alias is not UNSET:
                         k = field_alias
             if isinstance(v, (int, str, float, bool)) and getattr(v, "__cwtch_asjson__", None) is None:
@@ -764,20 +822,19 @@ empty_args = cython.declare(cython.object, ())
 
 
 @cython.cfunc
-def _validate_type(value, T, origin, fields, handle_circular_refs, cache):
+def _validate_type(value, T, origin, fields, cache):
     value = getattr(value, "_cwtch_o", value)
     if origin == T and isinstance(value, origin):
         return value
     if fields is not None:
-        if handle_circular_refs:
-            cache_key = (T, id(value))
-            cache_value = cache.get(cache_key)
-            if cache_value is not None:
-                return cache_value if not cache["reset_circular_refs"] else UNSET
+        cache_key = (T, id(value))
+        cache_value = cache.get(cache_key)
+        if cache_value is not None:
+            return cache_value if not cache["reset_circular_refs"] else UNSET
         if isinstance(value, dict):
             return PyObject_Call(origin, empty_args, value)
         kwds = {f_name: v for f_name in fields if (v := getattr(value, f_name, _MISSING)) is not _MISSING}
-        return PyObject_Call(origin, empty_args, value)
+        return PyObject_Call(origin, empty_args, kwds)
     if origin == type:
         if type(value) != type:
             raise ValueError(f"value should be a type")
@@ -791,6 +848,7 @@ def _validate_type(value, T, origin, fields, handle_circular_refs, cache):
             return origin(value)
         if issubclass(origin, (UUID, datetime_datetime, datetime_date, datetime_time)):
             return origin(value)
+    # return origin(value)
     raise ValueError(f"invalid value for {T}".replace("typing.", ""))
 
 
@@ -798,12 +856,8 @@ def _validate_type(value, T, origin, fields, handle_circular_refs, cache):
 def validate_type(value, T):
     origin = getattr(T, "__origin__", T)
     fields = getattr(origin, "__dataclass_fields__", None)
-    handle_circular_refs = getattr(origin, "__cwtch_handle_circular_refs__", None)
-    if handle_circular_refs:
-        cache = _CACHE_get()
-    else:
-        cache = None
-    return _validate_type(value, T, origin, fields, handle_circular_refs, cache)
+    cache = _CACHE_get()
+    return _validate_type(value, T, origin, fields, cache)
 
 
 @cython.inline
@@ -910,13 +964,9 @@ def validate_list(value, T, /):
                 if validator == validate_type:
                     origin = getattr(T_arg, "__origin__", T_arg)
                     fields = getattr(origin, "__dataclass_fields__", None)
-                    handle_circular_refs = getattr(origin, "__cwtch_handle_circular_refs__", None)
-                    if handle_circular_refs:
-                        cache = _CACHE_get()
-                    else:
-                        cache = None
+                    cache = _CACHE_get()
                     for x in value:
-                        v = _validate_type(x, T_arg, origin, fields, handle_circular_refs, cache)
+                        v = _validate_type(x, T_arg, origin, fields, cache)
                         PyList_SET_ITEM(result, i, v)
                         Py_INCREF(v)
                         i += 1
@@ -983,7 +1033,7 @@ def validate_tuple(value, T, /):
                             elif T_arg == bool:
                                 v = validate_bool(x, bool)
                             elif T_arg == bytes:
-                                v = validate_bool(x, bytes)
+                                v = validate_bytes(x, bytes)
                             elif T_arg == Any:
                                 pass
                             else:
@@ -1079,13 +1129,9 @@ def validate_tuple(value, T, /):
                 if validator == validate_type:
                     origin = getattr(T_arg, "__origin__", T_arg)
                     fields = getattr(origin, "__dataclass_fields__", None)
-                    handle_circular_refs = getattr(origin, "__cwtch_handle_circular_refs__", None)
-                    if handle_circular_refs:
-                        cache = _CACHE_get()
-                    else:
-                        cache = None
+                    cache = _CACHE_get()
                     for x in value:
-                        v = _validate_type(x, T_arg, origin, fields, handle_circular_refs, cache)
+                        v = _validate_type(x, T_arg, origin, fields, cache)
                         PyTuple_SET_ITEM(result, i, v)
                         Py_INCREF(v)
                         i += 1
@@ -1175,13 +1221,9 @@ def validate_set(value, T, /):
                 if validator == validate_type:
                     origin = getattr(T_arg, "__origin__", T_arg)
                     fields = getattr(origin, "__dataclass_fields__", None)
-                    handle_circular_refs = getattr(origin, "__cwtch_handle_circular_refs__", None)
-                    if handle_circular_refs:
-                        cache = _CACHE_get()
-                    else:
-                        cache = None
+                    cache = _CACHE_get()
                     for x in value:
-                        v = _validate_type(x, T_arg, origin, fields, handle_circular_refs, cache)
+                        v = _validate_type(x, T_arg, origin, fields, cache)
                         result.add(v)
                         i += 1
                     return result
@@ -1459,6 +1501,14 @@ def validate_datetime(value, T, /):
     return default_validator(value, T)
 
 
+def validate_path(value, T, /):
+    if isinstance(value, T):
+        return value
+    if isinstance(value, str):
+        return Path(value)
+    raise ValueError(f"invalid value for {T}".replace("typing.", ""))
+
+
 def validate_typevar(value, T, /):
     return value
 
@@ -1477,13 +1527,18 @@ def validate_new_type(value, T, /):
         raise e
 
 
+def validate_enum(value, T, /):
+    return T(value)
+
+
 def default_validator(value, T, /):
     if getattr(T, "__bases__", None) is None:
         raise TypeError(f"{T} is not a type")
     value = getattr(value, "_cwtch_o", value)
     if getattr(T, "__origin__", None) is None and isinstance(value, T):
         return value
-    return T(value)
+    raise MissingValidatorError(T)
+    # return T(value)
 
 
 validators_map = cython.declare(cython.object, {})
@@ -1502,6 +1557,8 @@ validators_map[tuple] = validate_tuple
 validators_map[_TupleType] = validate_tuple
 validators_map[set] = validate_set
 validators_map[dict] = validate_dict
+validators_map[Enum] = validate_enum
+validators_map[EnumType] = validate_enum
 validators_map[Mapping] = validate_mapping
 validators_map[Any] = validate_any
 validators_map[_AnyMeta] = validate_any
@@ -1511,6 +1568,7 @@ validators_map[_GenericAlias] = validate_generic_alias
 validators_map[_SpecialGenericAlias] = validate_generic_alias
 validators_map[_LiteralGenericAlias] = validate_literal
 validators_map[_CallableType] = validate_callable
+validators_map[_CallableGenericAlias] = validate_callable
 validators_map[types.UnionType] = validate_union
 validators_map[typing.Union] = validate_union
 validators_map[_UnionGenericAlias] = validate_union
@@ -1521,19 +1579,34 @@ validators_map[TypeVar] = validate_typevar
 validators_map[TypeWrapperMeta] = validate_type_wrapper
 validators_map[NewType] = validate_new_type
 validators_map[UnsetType] = validate_unset
+validators_map[Path] = validate_path
 
 
 validators_map_get = cython.declare(cython.object, validators_map.get)
 
 
-# @functools.cache
-def get_validator(T: Type, /) -> Callabel[[Any, Type], Any]:
-    return validators_map_get(T) or validators_map_get(T.__class__) or default_validator
-
-
-def validate_value(value: Any, T: Type):
+def get_validator(T, /) -> Callable[[Any, Type], Any]:
     try:
-        return get_validator(T)(value, type_adapter(T))
+        return validators_map_get(T) or validators_map_get(T.__class__) or default_validator
+    except TypeError:
+        return validators_map_get(T.__class__) or default_validator
+
+
+def validate_value(value: Any, T):
+    """Validate a value against a type.
+
+    Args:
+        value: The value to validate.
+        T: The type to validate against.
+
+    Returns:
+        The validated value (possibly transformed by the validator).
+
+    Raises:
+        ValidationError: If validation fails.
+    """
+    try:
+        return get_validator(T)(value, update_metadata(T))
     except ValidationError as e:
         e.__cause__ = None
         if e.value == ...:
@@ -1545,12 +1618,22 @@ def validate_value(value: Any, T: Type):
         raise err
 
 
-def register_validator(T: Type, validator: Callable[[Any, Type], Any], force: bool | None = None):
-    if (T in validators_map or T.__class__ in validators_map) and not force:
-        raise Exception(f"validator for '{T}' already registered")
+def register_validator(T: Hashable, validator: Callable[[Any, Any], Any], force: bool | None = None):
+    """Register a custom validator for a type.
+
+    Args:
+        T: The type to register a validator for.
+        validator: A callable that validates and transforms the value.
+        force: If True, override existing validator. If False (default), raise an error if validator exists.
+
+    Raises:
+        Exception: If validator already exists and force is not True.
+    """
+    hash(T)
+    if not force:
+        if T in validators_map:
+            raise Exception(f"validator for '{T}' already registered")
     validators_map[T] = validator
-    validators_map[T.__class__] = validator
-    # get_validator.cache_clear()
 
 
 def make_json_schema(
@@ -1559,6 +1642,21 @@ def make_json_schema(
     context=None,
     default=None,
 ) -> tuple[dict, dict]:
+    """Generate a JSON schema for a type.
+
+    Args:
+        T: The type to generate a JSON schema for.
+        ref_builder: A callable that builds reference URLs for types.
+        context: Optional context for schema generation.
+        default: Optional default schema builder.
+
+    Returns:
+        A tuple of (schema, definitions) where schema is the JSON schema
+        and definitions contains any sub-schemas.
+
+    Raises:
+        Exception: If no schema builder is available for the type.
+    """
     if builder := getattr(T, "__cwtch_json_schema__", None):
         schema = builder(context=context)
         for metadata in filter(lambda item: isinstance(item, TypeMetadata), getattr(T, "__metadata__", ())):
@@ -1760,29 +1858,54 @@ json_schema_builders_map[TypeWrapperMeta] = make_json_schema_type_wrapper
 
 
 def get_json_schema_builder(T, /):
-    return json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
+    try:
+        return json_schema_builders_map.get(T) or json_schema_builders_map.get(T.__class__)
+    except TypeError:
+        return json_schema_builders_map.get(T.__class__)
 
 
-def register_json_schema_builder(T, builder, force: bool | None = None):
-    if T in json_schema_builders_map and not force:
-        raise Exception(f"json schema builder for '{T}' already registered")
+def register_json_schema_builder(
+    T: Hashable,
+    builder: Callable[
+        [Any, Callable[[Any], str] | None, Any, Callable[..., tuple[dict, dict]] | None],
+        tuple[dict, dict],
+    ],
+    force: bool | None = None,
+):
+    """Register a custom JSON schema builder for a type.
+
+    Args:
+        T: The type to register the builder for.
+        builder: A callable that generates JSON schema for the type.
+        force: If True, overwrite existing builder without raising an exception.
+
+    Raises:
+        Exception: If a builder for T is already registered and force is not True.
+    """
+    hash(T)
+    if not force:
+        if T in json_schema_builders_map:
+            raise Exception(f"json schema builder for '{T}' already registered")
     json_schema_builders_map[T] = builder
-    get_json_schema_builder.cache_clear()
 
 
-cpdef inline asdict(
+@cython.inline
+@cython.ccall
+def asdict(
     inst,
-    include_=None,
-    exclude_=None,
-    exclude_none=None,
-    exclude_unset=None,
-    context=None,
+    include_: Sequense[str] | None = None,
+    exclude_: Sequense[str] | None = None,
+    exclude_none: bool | None = None,
+    exclude_unset: bool | None = None,
+    exclude_computed_fields: bool | None = None,
+    context: dict | None = None,
 ):
     kwds = AsDictKwds(
         include_,
         exclude_,
         exclude_none,
         exclude_unset,
+        exclude_computed_fields,
         context,
     )
     inst_asdict = getattr(inst, "__cwtch_asdict__", None)
@@ -1791,7 +1914,7 @@ cpdef inline asdict(
     return asdict_root_handler(inst, kwds)
 
 
-def dumps_json(obj, encoder, context, omit_microseconds: bool | None = None) -> bytes:
+def asjson(obj, encoder, context, omit_microseconds: bool | None = None) -> bytes:
     option = orjson.OPT_PASSTHROUGH_SUBCLASS
     if omit_microseconds:
         option |= orjson.OPT_OMIT_MICROSECONDS
@@ -1825,7 +1948,8 @@ def dumps_json(obj, encoder, context, omit_microseconds: bool | None = None) -> 
     return orjson.dumps(obj, default=_encoder, option=option)
 
 
-cdef class ToView:
+@cython.cclass
+class ToView:
     view_cls: object
     view_name: object
     data: object
@@ -1835,12 +1959,13 @@ cdef class ToView:
         self.view_name = view_cls.__cwtch_view_name__
         self.data = obj.__dict__
 
-    cdef dump(self, value):
+    @cython.cfunc
+    def dump(self, value):
         if getattr(value, "__cwtch_model__", None):
             view = getattr(value, self.view_name, None)
             if view:
                 return view()
-            return asdict(value)
+            return asdict(value, exclude_computed_fields=True)
         if isinstance(value, dict):
             return {k: self.dump(v) for k, v in value.items()}
         if isinstance(value, (list, tuple, set)):
@@ -1848,9 +1973,5 @@ cdef class ToView:
         return value
 
     def __call__(self):
-        kwds = {
-            k: self.dump(self.data[k])
-            for k in self.view_cls.__dataclass_fields__
-            if k in self.data
-        }
+        kwds = {k: self.dump(self.data[k]) for k in self.view_cls.__dataclass_fields__ if k in self.data}
         return PyObject_Call(self.view_cls, empty_args, kwds)

@@ -1,9 +1,7 @@
-site_name: cwtch
-
-site_url: https://levsh.github.io/cwtch/
-
-nav:
-  - cwtch: index.md
+site_name: Cwtch
+site_description: Python dataclasses with validation and views
+repo_url: https://github.com/levsh/cwtch
+edit_uri: ""
 
 theme:
   language: en
@@ -15,30 +13,24 @@ theme:
   features:
     - content.code.copy
 
-markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.superfences
-  - tables
-  - admonition
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
-  - search
-  - mkdocstrings:
-      handlers:
-        python:
-          load_external_modules: true
+  - mkdocstrings
 
-extra_css:
-  - css/extra.css
-
-extra:
-  alternate:
-  - link: en
-    name: en - English
-  - link: ru
-    name: ru - Русский
-
-repo_url: https://github.com/levsh/cwtch
+nav:
+  - Home: index.md
+  - User Manual:
+      - user-manual/dataclass.md
+      - user-manual/field.md
+      - user-manual/view.md
+      - user-manual/validation.md
+      - user-manual/types.md
+      - user-manual/serialization.md
+      - user-manual/config.md
+  - API Reference:
+      - api/cwtch.md
+      - api/errors.md
+      - api/types.md
+      - api/metadata.md

@@ -14,7 +14,22 @@ class Error(Exception):
     pass
 
 
+class MissingValidatorError(Error):
+    """Raised when no validator is registered for a type."""
+
+    pass
+
+
 class ValidationError(Error):
+    """Raised when validation of a value fails.
+
+    Attributes:
+        value: The value that failed validation.
+        type: The expected type.
+        errors: List of validation errors.
+        path: Path to the field in nested structures.
+    """
+
     def __init__(
         self,
         value,
@@ -37,7 +52,8 @@ class ValidationError(Error):
             elif self.value != ...:
                 lines.append(f"Type: {type(self.value)} -->")
             elif self.type:
-                lines.append(f"Type: --> {self.type}".replace("typing.", ""))
+                # lines.append(f"Type: --> {self.type}".replace("typing.", ""))
+                lines.append(f"Type: {self.type}".replace("typing.", ""))
 
             if config.SHOW_INPUT_VALUE_ON_ERROR and self.value != ...:
                 lines.append(f"Input: {pretty.pretty_repr(self.value, max_length=10, max_string=100)}")

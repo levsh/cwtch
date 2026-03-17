@@ -3,6 +3,9 @@ import pytest
 from .models import *
 
 
+pytestmark = pytest.mark.slow
+
+
 RANGE = 100
 
 
@@ -15,7 +18,7 @@ RANGE = 100
 def test_perf_cwtch_json(benchmark):
     model = C(**data)
 
-    dumps = cwtch.dumps_json
+    dumps = cwtch.asjson
 
     benchmark(lambda: [dumps(model) for _ in range(RANGE)])
 
@@ -30,7 +33,7 @@ def test_perf_cwtch_asdict_json(benchmark):
     model = C(**data)
 
     asdict = cwtch.asdict
-    dumps = cwtch.dumps_json
+    dumps = cwtch.asjson
 
     benchmark(lambda: [dumps(asdict(model)) for _ in range(RANGE)])
 

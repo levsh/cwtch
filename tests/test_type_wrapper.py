@@ -4,7 +4,7 @@ from typing import Callable
 
 import pytest
 
-from cwtch import TypeWrapper, ValidationError, dataclass, dumps_json, validate_value, view
+from cwtch import TypeWrapper, ValidationError, dataclass, asjson, validate_value, view
 from cwtch.core import make_json_schema
 
 
@@ -30,7 +30,7 @@ def test_validate_value():
         assert isinstance(value, datetime.datetime)
         assert str(value) == "1970-01-01 00:00:00"
         assert value.__cwtch_asjson__() == "ABC"
-        assert dumps_json(value) == b'"ABC"'
+        assert asjson(value) == b'"ABC"'
 
     value = DateTime(datetime.datetime(1970, 1, 1))
     assert id(value) == id(validate_value(value, DateTime))
@@ -56,7 +56,7 @@ def test_model():
 
     assert type(v.dt) == datetime.datetime
 
-    assert dumps_json(M("1970-01-01")) == b'{"dt":"ABC"}'
+    assert asjson(M("1970-01-01")) == b'{"dt":"ABC"}'
 
 
 def test_str():
@@ -80,7 +80,7 @@ def test_callable():
 
     M(t=lambda x: x)
 
-    assert dumps_json(M(t=lambda x: x)) == b'{"t":"ABC"}'
+    assert asjson(M(t=lambda x: x)) == b'{"t":"ABC"}'
 
     with pytest.raises(ValidationError):
         M(t=1)
